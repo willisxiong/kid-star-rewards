@@ -1,0 +1,100 @@
+---
+import Base from '../layouts/Base.astro';
+---
+<Base title="/parent · 儿童星级奖励系统">
+  <p class="boot-note" id="boot">正在加载…</p>
+  <div class="widget-container" id="gate" hidden>
+    <div class="app-card">
+      <div class="header-row">
+        <div class="app-title-group">
+          <span class="material-symbols-outlined app-title-icon">auto_awesome</span>
+          <h2 class="app-title">儿童星级奖励系统</h2>
+        </div>
+        <span class="route-chip">/parent</span>
+      </div>
+      <p class="auth-note">封闭测试，只有已邀请的家长邮箱可以登录。我们会发送一个一次性魔法链接。</p>
+      <form id="email-form" class="auth-stack">
+        <input id="email" class="lumi-input-custom" type="email" name="email" autocomplete="email" placeholder="家长邮箱" />
+        <div class="auth-actions">
+          <button class="action-btn primary" type="submit" id="send-link">发送登录链接</button>
+          <a class="text-link" href="/kid">我是小朋友</a>
+        </div>
+      </form>
+      <p class="auth-note" id="sent-note" hidden></p>
+      <div class="dev-link" id="dev-link" hidden></div>
+    </div>
+  </div>
+  <div class="widget-container" id="app" hidden>
+    <div class="app-card">
+      <div class="header-row">
+        <div class="app-title-group">
+          <span class="material-symbols-outlined app-title-icon">auto_awesome</span>
+          <h2 class="app-title">儿童星级奖励系统</h2>
+        </div>
+        <span class="route-chip">/parent</span>
+      </div>
+      <div class="meta-row">
+        <div class="meta-left">
+          <span class="route-chip" id="family-code">家庭码</span>
+          <label class="tz-label">时区
+            <select id="timezone" class="lumi-input-custom tz-select"></select>
+          </label>
+        </div>
+        <button class="action-btn small" type="button" id="logout">退出</button>
+      </div>
+      <div class="hero-banner">
+        <div>
+          <div class="balance-label">
+            <span class="material-symbols-outlined fill" style="font-size: 16px; color: #f59e0b;">stars</span> 当前可用积分
+          </div>
+          <div class="balance-num">
+            <span id="balance">0</span>
+            <span class="balance-unit">星</span>
+          </div>
+        </div>
+        <span class="material-symbols-outlined star-hero-icon">star</span>
+      </div>
+      <div class="view-col">
+        <div class="section">
+          <div class="section-title">
+            <span class="material-symbols-outlined" style="color: #de2d29;">pending_actions</span>
+            待审核兑换请求 <span class="badge-count" id="pending-badge" hidden>0</span>
+          </div>
+          <div class="pending-list" id="pending-list"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">
+            <span class="material-symbols-outlined" style="color: #3186ff;">add_task</span> 自定义新增任务
+          </div>
+          <div class="form-row">
+            <input type="text" id="task-name" class="lumi-input-custom" placeholder="任务名称 (例: 帮忙洗碗)" />
+            <input type="number" id="task-points" class="lumi-input-custom" placeholder="奖励星数" min="1" />
+            <button class="action-btn primary" type="button" id="add-task">添加任务</button>
+          </div>
+          <div class="catalog-list" id="task-catalog"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">
+            <span class="material-symbols-outlined" style="color: #f59e0b;">add_shopping_cart</span> 自定义新增奖励
+          </div>
+          <div class="form-row">
+            <input type="text" id="reward-name" class="lumi-input-custom" placeholder="奖励名称 (例: 去游乐园)" />
+            <input type="number" id="reward-cost" class="lumi-input-custom" placeholder="所需星数" min="1" />
+            <button class="action-btn primary" type="button" id="add-reward">添加奖励</button>
+          </div>
+          <div class="catalog-list" id="reward-catalog"></div>
+        </div>
+        <div class="section">
+          <div class="section-title">
+            <span class="material-symbols-outlined">history</span> 系统的操作日志
+          </div>
+          <div class="log-list" id="log-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</Base>
+<script>
+  import { bootParent } from '../scripts/parent';
+  bootParent();
+</script>

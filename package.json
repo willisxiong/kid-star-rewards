@@ -1,0 +1,28 @@
+{
+  "name": "kid-star-rewards",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "test": "node --experimental-strip-types --test src/lib/*.test.ts",
+    "db:migrate:local": "wrangler d1 migrations apply kid-star-rewards --local",
+    "db:setup:local": "npm run db:migrate:local",
+    "types": "wrangler types",
+    "deploy": "npm run build && wrangler pages deploy dist --project-name kid-star-rewards"
+  },
+  "dependencies": {
+    "@astrojs/cloudflare": "12.6.13",
+    "astro": "^5.16.0",
+    "hono": "^4.10.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.4",
+    "@cloudflare/workers-types": "^4.20251101.0",
+    "typescript": "^5.9.3",
+    "wrangler": "4.41.0"
+  }
+}

@@ -1,16 +1,26 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "kid-star-rewards",
-  "pages_build_output_dir": "./dist",
+  // @astrojs/cloudflare 12 emits this file. The package entrypoint only exports createExports and is not a Worker.
+  "main": "./dist/_worker.js/index.js",
+  "upload_source_maps": true,
+  // Node.js compatibility is already on for dates on or after 2026-08-04. The nodejs_compat flag is ignored.
   "compatibility_date": "2026-11-05",
-  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS"
+  },
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "traces": {
+      "enabled": true
+    }
   },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "kid-star-rewards",
+      // Placeholder. Replace both ids with the UUID from `wrangler d1 create kid-star-rewards` before the first deploy.
       "database_id": "00000000-0000-0000-0000-000000000000",
       "preview_database_id": "00000000-0000-0000-0000-000000000000",
       "migrations_dir": "migrations"

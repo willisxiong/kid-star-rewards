@@ -1,5 +1,6 @@
 # Copy to .dev.vars for local `astro dev`. Do not commit .dev.vars.
-# Generate a long random value. Wrangler Pages secrets use the same names.
+# Generate a long random value. Deployed Worker secrets use the same names
+# (`wrangler secret put <NAME>`).
 
 SESSION_SECRET=replace-with-at-least-32-random-characters
 
@@ -11,4 +12,4 @@ MAGIC_LINK_DEV_ECHO=1
 # RESEND_API_KEY=
 # EMAIL_FROM=Kid Star Rewards <login@your-domain>
 # MAILCHANNELS=1
-# APP_ORIGIN=https://kid-star-rewards.pages.dev
+# APP_ORIGIN=https://kid-star-rewards.<account-subdomain>.workers.dev

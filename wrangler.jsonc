@@ -16,6 +16,10 @@
       "enabled": true
     }
   },
+  // Plain Worker var so Production always has a sender. Secrets stay dashboard secrets.
+  "vars": {
+    "EMAIL_FROM": "parent@mail.aiden-birth.com"
+  },
   "d1_databases": [
     {
       "binding": "DB",

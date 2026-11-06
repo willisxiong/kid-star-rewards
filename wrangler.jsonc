@@ -21,8 +21,8 @@
       "binding": "DB",
       "database_name": "kid-star-rewards",
       // Placeholder. Replace both ids with the UUID from `wrangler d1 create kid-star-rewards` before the first deploy.
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "preview_database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "95fe69c2-ef47-4183-a19f-b4fdca3349a7",
+      "preview_database_id": "95fe69c2-ef47-4183-a19f-b4fdca3349a7",
       "migrations_dir": "migrations"
     }
   ]

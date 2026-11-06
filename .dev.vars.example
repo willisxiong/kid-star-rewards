@@ -1,0 +1,14 @@
+# Copy to .dev.vars for local `astro dev`. Do not commit .dev.vars.
+# Generate a long random value. Wrangler Pages secrets use the same names.
+
+SESSION_SECRET=replace-with-at-least-32-random-characters
+
+# When "1", POST /api/auth/request returns the magic link in JSON and logs it.
+# Leave unset in production once RESEND_API_KEY (or Mailchannels) is sending mail.
+MAGIC_LINK_DEV_ECHO=1
+
+# Optional mail. If neither is set, the link is only written to the Worker log.
+# RESEND_API_KEY=
+# EMAIL_FROM=Kid Star Rewards <login@your-domain>
+# MAILCHANNELS=1
+# APP_ORIGIN=https://kid-star-rewards.pages.dev

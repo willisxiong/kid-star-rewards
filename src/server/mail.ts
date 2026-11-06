@@ -29,7 +29,7 @@ export async function deliverMagicLink(env: Env, to: string, url: string): Promi
   }
 
   if (env.MAILCHANNELS === '1') {
-    const from = env.EMAIL_FROM || 'noreply@kid-star-rewards.pages.dev';
+    const from = env.EMAIL_FROM || 'noreply@kid-star-rewards.workers.dev';
     const response = await fetch('https://api.mailchannels.net/tx/v1/send', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

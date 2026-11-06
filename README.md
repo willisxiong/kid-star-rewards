@@ -26,11 +26,11 @@ Daily check-in is once per task per `local_date` in the family timezone. A secon
 
 ## Stack
 
-- Astro 5 with `@astrojs/cloudflare`, which builds a Pages worker at `dist/_worker.js`
+- Astro 5 with `@astrojs/cloudflare` on Cloudflare Workers and [static assets](https://developers.cloudflare.com/workers/static-assets/). The adapter writes the Worker to `dist/_worker.js/index.js`. Wrangler uploads `./dist` as assets and binds them as `ASSETS`.
 - [Hono](https://hono.dev/) for `/api` and `/auth/verify`, mounted from `src/middleware.ts`
 - Cloudflare D1 binding `DB`
 
-Pages advanced mode uses that single worker. A `functions/` directory would be ignored next to `_worker.js`, so the API stays inside the worker instead of a separate Functions folder.
+The API lives in that Worker. `public/.assetsignore` keeps `_worker.js` and the adapter's `_routes.json` out of the asset upload. Workers does not use `_routes.json`; requests that are not static files run the Worker, including `/api` and `/auth`.
 
 ## Local development
 
@@ -55,7 +55,7 @@ npm run build
 
 ## Environment
 
-Set these in `.dev.vars` locally. On Pages, set them as project secrets or variables (dashboard, or `wrangler pages secret put <NAME> --project-name kid-star-rewards`). Do not put `SESSION_SECRET` in `wrangler.jsonc`.
+Set these in `.dev.vars` locally. On the Worker, set them as secrets (dashboard, or `npx wrangler secret put <NAME>`). Do not put `SESSION_SECRET` in `wrangler.jsonc`. `wrangler secret put` deploys a new version immediately.
 
 | Name | Required | Purpose |
 |---|---|---|
@@ -64,27 +64,42 @@ Set these in `.dev.vars` locally. On Pages, set them as project secrets or varia
 | `RESEND_API_KEY` | no | Sends the magic link with [Resend](https://resend.com/). |
 | `EMAIL_FROM` | no | From address. Resend's onboarding sender can only mail the Resend account owner until a domain is verified. |
 | `MAILCHANNELS` | no | `1` tries the Mailchannels send API when Resend is unset or fails. |
-| `APP_ORIGIN` | no | Public origin used inside the email link, for example `https://kid-star-rewards.pages.dev`. Defaults to the request origin. |
+| `APP_ORIGIN` | no | Public origin used inside the email link, for example `https://kid-star-rewards.<account-subdomain>.workers.dev`. Defaults to the request origin. |
 
-Mail order: Resend, then Mailchannels, then the Worker log. The log line looks like `[kid-star] magic link for parent@example.com: https://...`. `wrangler pages deployment tail` shows it on Pages.
+Mail order: Resend, then Mailchannels, then the Worker log. The log line looks like `[kid-star] magic link for parent@example.com: https://...`. `npx wrangler tail` shows it on the deployed Worker. If `MAILCHANNELS=1` and `EMAIL_FROM` is unset, the sender is `noreply@kid-star-rewards.workers.dev`. Set `EMAIL_FROM` to a verified address before relying on that path.
 
 Sessions are HttpOnly, `SameSite=Lax` cookies (`ks_session`). Parent sessions last 14 days. Child device sessions last 180 days. Kid routes reject parent cookies and parent routes reject child cookies. One browser profile holds one session: binding a child device on a browser that was logged in as a parent replaces that cookie.
 
-## Deploy to Cloudflare Pages
+## Deploy to Cloudflare Workers
 
-The agent environment here has no Cloudflare API token, so this repo does not publish a `*.pages.dev` URL. Willis needs to create the D1 database and the Pages project in the dashboard (or with Wrangler logged into the right account). Keep the project name `kid-star-rewards` so it stays separate from other products. Do not attach a custom domain if the release should stay on `*.pages.dev`.
+This is a Worker with static assets, not a Pages project. Do not run `wrangler pages deploy`.
+
+The checked-in `database_id` and `preview_database_id` are the placeholder `00000000-0000-0000-0000-000000000000`. They are not a database. Replace both with the id printed by `wrangler d1 create` before the first deploy. This repository does not publish a URL from here. There is still no open registration.
+
+The Worker name in `wrangler.jsonc` is `kid-star-rewards`. The live URL is `https://kid-star-rewards.<account-subdomain>.workers.dev` unless you attach a custom domain. Leave the custom domain off if the release should stay on `workers.dev`. The first `wrangler deploy` can ask you to register that account subdomain.
+
+### Wrangler
 
 1. `npx wrangler login` (account that should own this product).
 2. `npx wrangler d1 create kid-star-rewards`
 3. Put the printed database id into **both** `database_id` and `preview_database_id` in `wrangler.jsonc`. Using one database for production and preview keeps the single demo family in one place. Create a second database and point `preview_database_id` at it if preview deploys should stay isolated, then migrate and seed that database too.
 4. `npx wrangler d1 migrations apply kid-star-rewards --remote`
-5. `npx wrangler pages secret put SESSION_SECRET --project-name kid-star-rewards`
-6. Optional: `RESEND_API_KEY`, `EMAIL_FROM`, `APP_ORIGIN`. Set `MAGIC_LINK_DEV_ECHO` to `1` only until email works. Anyone who knows an invited address can request a link, and echo puts that link in the HTTP response.
+5. `npx wrangler secret put SESSION_SECRET`
+6. Optional: `npx wrangler secret put RESEND_API_KEY`, and the same command for `EMAIL_FROM` and `APP_ORIGIN`. Set `MAGIC_LINK_DEV_ECHO` to `1` only until email works. Anyone who knows an invited address can request a link, and echo puts that link in the HTTP response.
 7. `npm run deploy`
 
-`npm run deploy` runs `astro build` and `wrangler pages deploy dist --project-name kid-star-rewards`. The first deploy creates the Pages project. The live URL is `https://kid-star-rewards.pages.dev` (Cloudflare may add an account suffix if that name is taken). Build output directory is `dist`. Compatibility date is `2026-11-05` with `nodejs_compat`.
+`npm run deploy` runs `astro build`, then `wrangler deploy`. The Worker name comes from `wrangler.jsonc`. Build output is `dist`. `main` is `./dist/_worker.js/index.js`, so the build has to finish before deploy. Compatibility date is `2026-11-05`. That date already enables Node.js compatibility, so `nodejs_compat` is not set.
 
-After deploy, confirm in the Pages project settings that the D1 binding name is `DB`. `wrangler.jsonc` is the source of truth when you deploy with Wrangler. If the dashboard binding is missing, add D1 binding `DB` to the database from step 2 and redeploy.
+In the dashboard, secrets are **Workers & Pages** → the Worker → **Settings** → **Variables and Secrets** → **Add** → type **Secret**. Non-secret values can be plain variables the same way. `wrangler.jsonc` is the source of truth for the D1 binding when you deploy with Wrangler. After deploy, the Worker should show D1 binding `DB`.
+
+### Workers Builds (Git)
+
+1. In the Cloudflare dashboard, go to **Workers & Pages** → **Create application**, then choose GitHub or GitLab. Authenticate if asked.
+2. Select this repository. Set the Worker name to `kid-star-rewards`. It must match `name` in `wrangler.jsonc` or the build fails. Production branch is `main`.
+3. Build command: `npm run build`. Deploy command: `npx wrangler deploy`. Leave the deploy command as that default. Do not set it to `npm run deploy` while the build command is also `npm run build` (that builds twice) and do not use `wrangler pages deploy`.
+4. Save and deploy. Pushes to `main` build and deploy. Preview builds for other branches stay off until you enable them under **Settings** → **Builds** → **Branch control**. The preview command for a new Worker is `npx wrangler preview`.
+
+To connect the Git repo after a CLI deploy: open the `kid-star-rewards` Worker → **Settings** → **Builds** → **Connect**.
 
 `/api/health` returns `{ "ok": true, "service": "kid-star-rewards" }`.
 

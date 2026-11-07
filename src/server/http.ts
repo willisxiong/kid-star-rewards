@@ -1,9 +1,9 @@
 export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
   }
 }
 
@@ -16,9 +16,22 @@ export function readCookie(header: string | undefined, name: string): string | n
   return null;
 }
 
+export const PARENT_SESSION_SECONDS = 60 * 60 * 24 * 14;
+export const CHILD_SESSION_SECONDS = 60 * 60 * 48;
+
 export function sessionCookie(token: string, requestUrl: string, maxAge: number): string {
   const secure = new URL(requestUrl).protocol === 'https:';
-  const parts = [`ks_session=${encodeURIComponent(token)}`, 'HttpOnly', 'Path=/', 'SameSite=Lax', `Max-Age=${maxAge}`];
+  // Expires is last. Its HTTP-date contains a comma; if a proxy splits the
+  // header there, Max-Age is already present and still makes the cookie persistent.
+  const expires = maxAge > 0 ? new Date(Date.now() + maxAge * 1000).toUTCString() : 'Thu, 01 Jan 1970 00:00:00 GMT';
+  const parts = [
+    `ks_session=${encodeURIComponent(token)}`,
+    'HttpOnly',
+    'Path=/',
+    'SameSite=Lax',
+    `Max-Age=${maxAge}`,
+    `Expires=${expires}`,
+  ];
   if (secure) parts.push('Secure');
   return parts.join('; ');
 }

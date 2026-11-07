@@ -8,7 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro check",
-    "test": "node --experimental-strip-types --test src/lib/*.test.ts",
+    "test": "node --experimental-strip-types --import ./scripts/register-ts.mjs --test src/lib/*.test.ts src/server/*.test.ts",
     "db:migrate:local": "wrangler d1 migrations apply kid-star-rewards --local",
     "db:setup:local": "npm run db:migrate:local",
     "types": "wrangler types",

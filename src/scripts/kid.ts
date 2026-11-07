@@ -1,9 +1,10 @@
 import type { KidState, KidTask, RewardItem } from '../lib/types';
+import { copy } from '../lib/validate';
 import { api, icon, showToast } from './api';
 
 const POLL_MS = 4000;
 
-export function bootKid(): void {
+export function bootKid(initial: KidState | null): void {
   const boot = document.getElementById('boot');
   const gate = document.getElementById('gate');
   const app = document.getElementById('app');
@@ -12,7 +13,18 @@ export function bootKid(): void {
 
   let polling = false;
   let busy = false;
+  let epoch = 0;
   let fingerprint = '';
+
+  const params = new URLSearchParams(location.search);
+  const bind = params.get('bind');
+  if (bind === 'invalid') showToast(copy.codeInvalid);
+  else if (bind === 'nochild') showToast('这个家庭还没有儿童账号');
+  if (bind) {
+    params.delete('bind');
+    const next = params.toString();
+    history.replaceState(null, '', next ? `${location.pathname}?${next}` : location.pathname);
+  }
 
   const showGate = (note?: string) => {
     fingerprint = '';
@@ -47,7 +59,9 @@ export function bootKid(): void {
   };
 
   const refresh = async () => {
+    const ticket = epoch;
     const result = await api<KidState>('/api/kid/state');
+    if (ticket !== epoch) return;
     if (result.status === 401) {
       showGate();
       return;
@@ -172,23 +186,8 @@ export function bootKid(): void {
     if (result.data.state) showState(result.data.state);
   };
 
-  form.addEventListener('submit', async (event) => {
-    event.preventDefault();
-    const input = document.getElementById('family-code-input') as HTMLInputElement | null;
-    const familyCode = input?.value ?? '';
-    const result = await api<{ message?: string; state?: KidState }>('/api/auth/child', {
-      method: 'POST',
-      body: JSON.stringify({ familyCode }),
-    });
-    if (result.status !== 200 || !result.data.state) {
-      showToast(result.data.message || '家庭码不正确');
-      return;
-    }
-    if (input) input.value = '';
-    showState(result.data.state);
-  });
-
   document.getElementById('logout')?.addEventListener('click', async () => {
+    epoch += 1;
     await api('/api/auth/logout', { method: 'POST' });
     showToast('已退出');
     showGate();
@@ -202,6 +201,7 @@ export function bootKid(): void {
     if (polling && document.visibilityState === 'visible') void refresh();
   });
 
+  if (initial) showState(initial);
   void refresh();
 }
 

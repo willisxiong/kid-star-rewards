@@ -1,9 +1,34 @@
 ---
 import Base from '../layouts/Base.astro';
+import type { KidState } from '../lib/types';
+import { kidState, loadSession } from '../server/data';
+import { readCookie, sha256 } from '../server/http';
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const boot = await loadKidBoot();
+const initialKidJson = JSON.stringify(boot.state).replace(/</g, '\\u003c');
+
+async function loadKidBoot(): Promise<{ state: KidState | null; showGate: boolean }> {
+  try {
+    const env = Astro.locals.runtime?.env;
+    if (!env?.DB) return { state: null, showGate: false };
+    const secret = env.SESSION_SECRET ?? '';
+    if (secret.length < 16) return { state: null, showGate: false };
+    const token = readCookie(Astro.request.headers.get('cookie') ?? undefined, 'ks_session');
+    if (!token) return { state: null, showGate: true };
+    const session = await loadSession(env.DB, await sha256(`${secret}:${token}`));
+    if (!session || session.role !== 'child' || !session.child_id) return { state: null, showGate: true };
+    return { state: await kidState(env.DB, session.family_id, session.child_id), showGate: false };
+  } catch (error) {
+    console.error('[kid-star] kid bootstrap', error);
+    return { state: null, showGate: false };
+  }
+}
 ---
 <Base title="/kid · 儿童星级奖励系统">
-  <p class="boot-note" id="boot">正在加载…</p>
-  <div class="widget-container" id="gate" hidden>
+  <p class="boot-note" id="boot" hidden={boot.showGate || Boolean(boot.state)}>正在加载…</p>
+  <div class="widget-container" id="gate" hidden={!boot.showGate}>
     <div class="app-card">
       <div class="header-row">
         <div class="app-title-group">
@@ -13,7 +38,7 @@ import Base from '../layouts/Base.astro';
         <span class="route-chip">/kid</span>
       </div>
       <p class="auth-note" id="gate-note">输入家庭码，把这台设备绑定到家庭。同一个家庭码可以绑定多台设备。</p>
-      <form id="code-form" class="auth-stack">
+      <form id="code-form" class="auth-stack" method="post" action="/api/auth/child">
         <input id="family-code-input" class="lumi-input-custom" name="familyCode" autocomplete="off" placeholder="家庭码 (例: STAR-4821)" />
         <div class="auth-actions">
           <button class="action-btn primary" type="submit">绑定这台设备</button>
@@ -22,7 +47,7 @@ import Base from '../layouts/Base.astro';
       </form>
     </div>
   </div>
-  <div class="widget-container" id="app" hidden>
+  <div class="widget-container" id="app" hidden={!boot.state}>
     <div class="app-card">
       <div class="header-row">
         <div class="app-title-group">
@@ -32,7 +57,7 @@ import Base from '../layouts/Base.astro';
         <span class="route-chip">/kid</span>
       </div>
       <div class="meta-row">
-        <span class="route-chip" id="child-name">儿童</span>
+        <span class="route-chip" id="child-name">{boot.state?.childName ?? '儿童'}</span>
         <button class="action-btn small" type="button" id="logout">退出此设备</button>
       </div>
       <div class="hero-banner">
@@ -41,7 +66,7 @@ import Base from '../layouts/Base.astro';
             <span class="material-symbols-outlined fill" style="font-size: 16px; color: #f59e0b;">stars</span> 当前可用积分
           </div>
           <div class="balance-num">
-            <span id="balance">0</span>
+            <span id="balance">{boot.state?.balance ?? 0}</span>
             <span class="balance-unit">星</span>
           </div>
         </div>
@@ -63,8 +88,20 @@ import Base from '../layouts/Base.astro';
       </div>
     </div>
   </div>
+  <script id="kid-bootstrap" type="application/json" is:inline set:html={initialKidJson}></script>
+  <script>
+    import { bootKid } from '../scripts/kid';
+    import type { KidState } from '../lib/types';
+
+    const raw = document.getElementById('kid-bootstrap')?.textContent;
+    let initial: KidState | null = null;
+    if (raw && raw !== 'null') {
+      try {
+        initial = JSON.parse(raw) as KidState;
+      } catch {
+        initial = null;
+      }
+    }
+    bootKid(initial);
+  </script>
 </Base>
-<script>
-  import { bootKid } from '../scripts/kid';
-  bootKid();
-</script>

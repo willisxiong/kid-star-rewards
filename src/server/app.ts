@@ -17,11 +17,21 @@ import {
   updateTask,
   type SessionRow,
 } from './data';
-import { addSeconds, clearSessionCookie, HttpError, nowIso, randomToken, readCookie, requireSecret, sessionCookie, sha256 } from './http';
+import {
+  addSeconds,
+  CHILD_SESSION_SECONDS,
+  clearSessionCookie,
+  HttpError,
+  nowIso,
+  PARENT_SESSION_SECONDS,
+  randomToken,
+  readCookie,
+  requireSecret,
+  sessionCookie,
+  sha256,
+} from './http';
 import { deliverMagicLink } from './mail';
 
-const PARENT_SESSION_SECONDS = 60 * 60 * 24 * 14;
-const CHILD_SESSION_SECONDS = 60 * 60 * 24 * 180;
 const MAGIC_TTL_SECONDS = 60 * 15;
 
 type AppEnv = { Bindings: Env; Variables: { session: SessionRow } };
@@ -29,11 +39,17 @@ type AppEnv = { Bindings: Env; Variables: { session: SessionRow } };
 export const app = new Hono<AppEnv>();
 
 app.onError((error, c) => {
+  noStore(c);
   if (error instanceof HttpError) {
     return c.json({ error: 'error', message: error.message }, error.status as 400);
   }
   console.error('[kid-star]', error);
   return c.json({ error: 'server', message: '系统繁忙，请稍后再试' }, 500);
+});
+
+app.use('*', async (c, next) => {
+  await next();
+  noStore(c);
 });
 
 app.use('*', async (c, next) => {
@@ -140,17 +156,23 @@ app.get('/auth/verify', async (c) => {
 });
 
 app.post('/api/auth/child', async (c) => {
+  const wantsJson = (c.req.header('content-type') ?? '').includes('application/json');
+  const deny = (status: 400, message: string, code: string) => {
+    if (wantsJson) throw new HttpError(status, message);
+    return c.redirect(`/kid?bind=${code}`, 303);
+  };
   const secret = requireSecret(c.env);
-  const body = await readBody(c);
-  const code = normalizeFamilyCode(body.familyCode);
-  if (!code) throw new HttpError(400, copy.codeInvalid);
+  const familyCode = await readFamilyCode(c);
+  const code = normalizeFamilyCode(familyCode);
+  if (!code) return deny(400, copy.codeInvalid, 'invalid');
   const family = await c.env.DB.prepare('SELECT id FROM families WHERE family_code = ?').bind(code).first<{ id: string }>();
-  if (!family) throw new HttpError(400, copy.codeInvalid);
+  if (!family) return deny(400, copy.codeInvalid, 'invalid');
   const child = await c.env.DB.prepare('SELECT id FROM children WHERE family_id = ?').bind(family.id).first<{ id: string }>();
-  if (!child) throw new HttpError(400, '这个家庭还没有儿童账号');
+  if (!child) return deny(400, '这个家庭还没有儿童账号', 'nochild');
   const now = nowIso();
   const deviceId = crypto.randomUUID();
   const sessionToken = randomToken();
+  const expiresAt = addSeconds(now, CHILD_SESSION_SECONDS);
   await c.env.DB.batch([
     c.env.DB.prepare(
       'INSERT INTO child_devices (id, family_id, child_id, created_at, last_seen_at) VALUES (?, ?, ?, ?, ?)',
@@ -158,11 +180,16 @@ app.post('/api/auth/child', async (c) => {
     c.env.DB.prepare(
       `INSERT INTO sessions (id, token_hash, role, family_id, child_device_id, expires_at, created_at)
        VALUES (?, ?, 'child', ?, ?, ?, ?)`,
-    ).bind(crypto.randomUUID(), await sha256(`${secret}:${sessionToken}`), family.id, deviceId, addSeconds(now, CHILD_SESSION_SECONDS), now),
+    ).bind(crypto.randomUUID(), await sha256(`${secret}:${sessionToken}`), family.id, deviceId, expiresAt, now),
   ]);
+  // Set-Cookie is on this document navigation (303), same pattern as the parent magic link.
+  // A cookie set only on a fetch response is dropped by some in-app browsers when the page is closed.
   c.header('Set-Cookie', sessionCookie(sessionToken, c.req.url, CHILD_SESSION_SECONDS));
-  const state = await kidState(c.env.DB, family.id, child.id);
-  return c.json({ ok: true, state });
+  if (wantsJson) {
+    const state = await kidState(c.env.DB, family.id, child.id);
+    return c.json({ ok: true, state });
+  }
+  return c.redirect('/kid', 303);
 });
 
 app.get('/api/kid/state', async (c) => {
@@ -273,6 +300,26 @@ app.patch('/api/parent/family', async (c) => {
   await setTimezone(c.env.DB, session.family_id, timezone);
   return c.json({ ok: true, toast: copy.timezoneSaved, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '') });
 });
+
+function noStore(c: Context<AppEnv>): void {
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Pragma', 'no-cache');
+}
+
+async function readFamilyCode(c: Context<AppEnv>): Promise<string> {
+  const contentType = c.req.header('content-type') ?? '';
+  if (contentType.includes('application/json')) {
+    const body = await readBody(c);
+    return typeof body.familyCode === 'string' ? body.familyCode : '';
+  }
+  try {
+    const form = await c.req.parseBody();
+    const value = form.familyCode;
+    return typeof value === 'string' ? value : '';
+  } catch {
+    return '';
+  }
+}
 
 async function readBody(c: Context<AppEnv>): Promise<Record<string, unknown>> {
   let value: unknown;

@@ -3,7 +3,7 @@ export type ApiResult<T> = { status: number; data: T };
 export async function api<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
   const headers = new Headers(init?.headers);
   if (init?.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
-  const response = await fetch(path, { ...init, headers, credentials: 'same-origin' });
+  const response = await fetch(path, { ...init, headers, credentials: 'same-origin', cache: 'no-store' });
   const data = (await response.json().catch(() => ({}))) as T;
   return { status: response.status, data };
 }

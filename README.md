@@ -68,7 +68,7 @@ Set these in `.dev.vars` locally. On the Worker, set them as secrets (dashboard,
 
 Mail order: Resend, then Mailchannels, then the Worker log. The log line looks like `[kid-star] magic link for parent@example.com: https://...`. `npx wrangler tail` shows it on the deployed Worker. If `MAILCHANNELS=1` and `EMAIL_FROM` is unset, the sender is `noreply@kid-star-rewards.workers.dev`. Set `EMAIL_FROM` to a verified address before relying on that path.
 
-Sessions are HttpOnly, `SameSite=Lax` cookies (`ks_session`). Parent sessions last 14 days. Child device sessions last 180 days. Kid routes reject parent cookies and parent routes reject child cookies. One browser profile holds one session: binding a child device on a browser that was logged in as a parent replaces that cookie.
+Sessions are HttpOnly, `SameSite=Lax` cookies (`ks_session`), with `Max-Age` and `Expires` set to the same lifetime. Parent sessions last 14 days. Child device sessions last 48 hours (database `expires_at` and the cookie). Binding a device is a document `POST` that answers `303` to `/kid` with `Set-Cookie` on that response. `/kid` reads the cookie while rendering: a valid child session paints the app, and a missing session paints the family-code form. API responses are `Cache-Control: private, no-store`, so a cached `401` cannot stand in for a later request that would succeed. Kid routes reject parent cookies and parent routes reject child cookies. One browser profile holds one session: binding a child device on a browser that was logged in as a parent replaces that cookie.
 
 ## Deploy to Cloudflare Workers
 

@@ -1,8 +1,8 @@
 ---
 import Base from '../layouts/Base.astro';
 import type { KidState } from '../lib/types';
-import { kidState, loadSession } from '../server/data';
-import { readCookie, sha256 } from '../server/http';
+import { kidState } from '../server/data';
+import { resolveSessions } from '../server/sessions';
 
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
@@ -15,10 +15,10 @@ async function loadKidBoot(): Promise<{ state: KidState | null; showGate: boolea
     if (!env?.DB) return { state: null, showGate: false };
     const secret = env.SESSION_SECRET ?? '';
     if (secret.length < 16) return { state: null, showGate: false };
-    const token = readCookie(Astro.request.headers.get('cookie') ?? undefined, 'ks_session');
-    if (!token) return { state: null, showGate: true };
-    const session = await loadSession(env.DB, await sha256(`${secret}:${token}`));
-    if (!session || session.role !== 'child' || !session.child_id) return { state: null, showGate: true };
+    const resolved = await resolveSessions(env.DB, secret, Astro.request.headers.get('cookie') ?? undefined, Astro.request.url);
+    for (const cookie of resolved.setCookies) Astro.response.headers.append('Set-Cookie', cookie);
+    const session = resolved.child;
+    if (!session || !session.child_id) return { state: null, showGate: true };
     return { state: await kidState(env.DB, session.family_id, session.child_id), showGate: false };
   } catch (error) {
     console.error('[kid-star] kid bootstrap', error);

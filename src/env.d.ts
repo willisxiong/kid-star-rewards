@@ -14,4 +14,6 @@ interface Env {
   EMAIL_FROM?: string;
   MAILCHANNELS?: string;
   APP_ORIGIN?: string;
+  WEBAUTHN_RP_ID?: string;
+  WEBAUTHN_ORIGIN?: string;
 }

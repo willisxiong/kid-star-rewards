@@ -1,5 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
 ---
 <Base title="/parent · 儿童星级奖励系统">
   <p class="boot-note" id="boot">正在加载…</p>
@@ -12,16 +14,35 @@ import Base from '../layouts/Base.astro';
         </div>
         <span class="route-chip">/parent</span>
       </div>
-      <p class="auth-note">封闭测试，只有已邀请的家长邮箱可以登录。我们会发送一个一次性魔法链接。</p>
+      <p class="auth-note" id="login-help">第一次登录请先用邮箱链接，验证后再登记 Passkey。若已在本机或 iCloud / Google 密码管理器中有钥匙，可直接使用 Passkey。</p>
       <form id="email-form" class="auth-stack">
         <input id="email" class="lumi-input-custom" type="email" name="email" autocomplete="email" placeholder="家长邮箱" />
         <div class="auth-actions">
-          <button class="action-btn primary" type="submit" id="send-link">发送登录链接</button>
+          <button class="action-btn primary" type="button" id="passkey-login">使用 Passkey 登录</button>
+          <button class="action-btn" type="submit" id="send-link">发送登录链接</button>
           <a class="text-link" href="/kid">我是小朋友</a>
         </div>
       </form>
+      <p class="auth-note" id="passkey-unsupported" hidden>当前浏览器不支持 Passkey，请使用登录链接。</p>
       <p class="auth-note" id="sent-note" hidden></p>
       <div class="dev-link" id="dev-link" hidden></div>
+    </div>
+  </div>
+  <div class="widget-container" id="enroll" hidden>
+    <div class="app-card">
+      <div class="header-row">
+        <div class="app-title-group">
+          <span class="material-symbols-outlined app-title-icon">auto_awesome</span>
+          <h2 class="app-title">登记 Passkey</h2>
+        </div>
+        <span class="route-chip">/parent</span>
+      </div>
+      <p class="auth-warn">这是 workers.dev 上的试用。搬到正式域名之后，已经登记的 Passkey 会失效，需要再用邮箱登录链接重新登记。</p>
+      <p class="auth-note">请先登记一把 Passkey，才能使用家长面板。可以使用这台设备、iCloud 钥匙串或 Google 密码管理器。登记完成后，下次可以直接用 Passkey 登录。</p>
+      <div class="auth-actions">
+        <button class="action-btn primary" type="button" id="enroll-passkey">登记 Passkey</button>
+        <button class="action-btn" type="button" id="enroll-logout">退出</button>
+      </div>
     </div>
   </div>
   <div class="widget-container" id="app" hidden>
@@ -40,7 +61,20 @@ import Base from '../layouts/Base.astro';
             <select id="timezone" class="lumi-input-custom tz-select"></select>
           </label>
         </div>
-        <button class="action-btn small" type="button" id="logout">退出</button>
+        <div class="auth-actions">
+          <button class="action-btn small" type="button" id="manage-keys">密钥与登录</button>
+          <button class="action-btn small" type="button" id="logout">退出</button>
+        </div>
+      </div>
+      <div id="keys-panel" class="keys-panel" hidden>
+        <div class="section-title">
+          <span class="material-symbols-outlined">passkey</span> 密钥与登录
+        </div>
+        <p class="auth-warn">试用域名上的 Passkey 不能带到以后的正式域名。换域名后，请用邮箱登录链接重新登记。</p>
+        <div class="catalog-list" id="keys-list"></div>
+        <div class="auth-actions">
+          <button class="action-btn primary" type="button" id="register-another">再登记一把 Passkey</button>
+        </div>
       </div>
       <div class="hero-banner">
         <div>

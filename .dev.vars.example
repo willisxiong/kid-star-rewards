@@ -12,4 +12,8 @@ MAGIC_LINK_DEV_ECHO=1
 # RESEND_API_KEY=
 # EMAIL_FROM=Kid Star Rewards <login@your-domain>
 # MAILCHANNELS=1
-# APP_ORIGIN=https://kid-star-rewards.<account-subdomain>.workers.dev
+# APP_ORIGIN=https://kid-star-rewards.xiongwei-fly.workers.dev
+# Passkey RP ID must be the full trial hostname, never workers.dev.
+# Local http://localhost:4321 ignores these and uses RP ID localhost.
+# WEBAUTHN_RP_ID=kid-star-rewards.xiongwei-fly.workers.dev
+# WEBAUTHN_ORIGIN=https://kid-star-rewards.xiongwei-fly.workers.dev

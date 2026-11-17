@@ -325,6 +325,25 @@ select.lumi-input-custom { cursor: pointer; }
 
 .auth-stack { display: flex; flex-direction: column; gap: 10px; }
 .auth-note { margin: 0; font-size: 13px; color: var(--on-surface-variant); line-height: 1.5; }
+.auth-warn {
+  margin: 0;
+  background: #fff8f0;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: 16px;
+  padding: 12px 14px;
+  color: #7a4b00;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.keys-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface-dim);
+  border-radius: var(--r-l);
+  padding: 16px;
+}
+button.action-btn { cursor: pointer; }
 .auth-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .text-link { color: var(--accent-fixed); font-size: 13px; text-decoration: none; }
 .text-link:hover { text-decoration: underline; }

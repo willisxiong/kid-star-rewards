@@ -49,6 +49,18 @@ export type ParentState = {
   tasks: CatalogTask[];
   rewards: RewardItem[];
   logs: LogItem[];
+  hasPasskeys: boolean;
+  passkeyCount: number;
+};
+
+export type PasskeyItem = {
+  id: string;
+  friendlyName: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  deviceType: string | null;
+  backedUp: boolean;
+  backupEligible: boolean;
 };
 
 export type SessionRole = 'parent' | 'child';

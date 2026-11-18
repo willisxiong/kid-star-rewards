@@ -6,6 +6,10 @@ import cloudflare from '@astrojs/cloudflare';
 // not route with _routes.json; public/.assetsignore keeps both files out of
 // the asset upload. Hono is mounted from Astro middleware for /api and /auth.
 export default defineConfig({
+  server: {
+    host: 'localhost',
+    port: 4321,
+  },
   output: 'server',
   // Our own D1 sessions. A memory driver stops the adapter from requiring a KV binding.
   session: {

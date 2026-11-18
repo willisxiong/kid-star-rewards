@@ -1,9 +1,11 @@
 export class HttpError extends Error {
   readonly status: number;
+  readonly code: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code = 'error') {
     super(message);
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -18,14 +20,17 @@ export function readCookie(header: string | undefined, name: string): string | n
 
 export const PARENT_SESSION_SECONDS = 60 * 60 * 24 * 14;
 export const CHILD_SESSION_SECONDS = 60 * 60 * 48;
+export const PARENT_SESSION_COOKIE = 'ks_parent_session';
+export const CHILD_SESSION_COOKIE = 'ks_child_session';
+export const LEGACY_SESSION_COOKIE = 'ks_session';
 
-export function sessionCookie(token: string, requestUrl: string, maxAge: number): string {
+export function sessionCookie(name: string, token: string, requestUrl: string, maxAge: number): string {
   const secure = new URL(requestUrl).protocol === 'https:';
   // Expires is last. Its HTTP-date contains a comma; if a proxy splits the
   // header there, Max-Age is already present and still makes the cookie persistent.
   const expires = maxAge > 0 ? new Date(Date.now() + maxAge * 1000).toUTCString() : 'Thu, 01 Jan 1970 00:00:00 GMT';
   const parts = [
-    `ks_session=${encodeURIComponent(token)}`,
+    `${name}=${encodeURIComponent(token)}`,
     'HttpOnly',
     'Path=/',
     'SameSite=Lax',
@@ -36,8 +41,12 @@ export function sessionCookie(token: string, requestUrl: string, maxAge: number)
   return parts.join('; ');
 }
 
-export function clearSessionCookie(requestUrl: string): string {
-  return sessionCookie('', requestUrl, 0);
+export function clearSessionCookie(name: string, requestUrl: string): string {
+  return sessionCookie(name, '', requestUrl, 0);
+}
+
+export function remainingSeconds(expiresAt: string, now = Date.now()): number {
+  return Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000));
 }
 
 export async function sha256(value: string): Promise<string> {

@@ -1,6 +1,7 @@
-import type { ParentState } from '../lib/types';
+import type { ParentState, PasskeyItem } from '../lib/types';
 import { copy, parseName, parsePoints } from '../lib/validate';
 import { api, showToast } from './api';
+import { authenticateWithPasskey, browserSupportsPasskey, registerPasskey } from './passkey-client';
 
 const POLL_MS = 4000;
 const TIMEZONES = [
@@ -22,9 +23,20 @@ type EditTarget = { kind: 'task' | 'reward'; id: string } | null;
 export function bootParent(): void {
   const boot = document.getElementById('boot');
   const gate = document.getElementById('gate');
+  const enroll = document.getElementById('enroll');
   const app = document.getElementById('app');
   const form = document.getElementById('email-form') as HTMLFormElement | null;
-  if (!boot || !gate || !app || !form) return;
+  if (!boot || !gate || !enroll || !app || !form) return;
+
+  const supportsPasskey = browserSupportsPasskey();
+  const passkeyButton = document.getElementById('passkey-login');
+  const sendLink = document.getElementById('send-link');
+  const unsupported = document.getElementById('passkey-unsupported');
+  if (!supportsPasskey) {
+    if (passkeyButton) passkeyButton.hidden = true;
+    sendLink?.classList.add('primary');
+    if (unsupported) unsupported.hidden = false;
+  }
 
   let polling = false;
   let busy = false;
@@ -37,8 +49,18 @@ export function bootParent(): void {
     fingerprint = '';
     polling = false;
     boot.hidden = true;
+    enroll.hidden = true;
     app.hidden = true;
     gate.hidden = false;
+  };
+
+  const showEnroll = () => {
+    fingerprint = '';
+    polling = false;
+    boot.hidden = true;
+    gate.hidden = true;
+    app.hidden = true;
+    enroll.hidden = false;
   };
 
   const showState = (state: ParentState) => {
@@ -51,6 +73,7 @@ export function bootParent(): void {
   const render = (state: ParentState) => {
     boot.hidden = true;
     gate.hidden = true;
+    enroll.hidden = true;
     app.hidden = false;
     const balance = document.getElementById('balance');
     if (balance) balance.textContent = String(state.balance);
@@ -64,13 +87,24 @@ export function bootParent(): void {
   };
 
   const refresh = async () => {
-    const result = await api<ParentState>('/api/parent/state');
+    const result = await api<ParentState & { message?: string; error?: string }>('/api/parent/state');
     if (result.status === 401) {
       showGate();
       return;
     }
     if (result.status !== 200) return;
+    if (!result.data.hasPasskeys) {
+      showEnroll();
+      return;
+    }
     showState(result.data);
+  };
+
+  const enrollNow = async () => {
+    const result = await registerPasskey();
+    showToast(result.message);
+    if (result.ok) await refresh();
+    else if (result.message === '请先登录') showGate();
   };
 
   form.addEventListener('submit', async (event) => {
@@ -105,10 +139,33 @@ export function bootParent(): void {
     showToast(result.data.message || copy.magicSent);
   });
 
-  document.getElementById('logout')?.addEventListener('click', async () => {
-    await api('/api/auth/logout', { method: 'POST' });
+  document.getElementById('passkey-login')?.addEventListener('click', async () => {
+    const button = document.getElementById('passkey-login') as HTMLButtonElement | null;
+    if (button) button.disabled = true;
+    const result = await authenticateWithPasskey();
+    if (button) button.disabled = false;
+    if (!result.ok) {
+      showToast(copy.passkeyFailed);
+      return;
+    }
+    showToast(result.message);
+    await refresh();
+  });
+
+  const logout = async () => {
+    await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({ role: 'parent' }) });
     showToast(copy.loggedOut);
     showGate();
+  };
+  document.getElementById('logout')?.addEventListener('click', () => void logout());
+  document.getElementById('enroll-logout')?.addEventListener('click', () => void logout());
+  document.getElementById('enroll-passkey')?.addEventListener('click', () => void enrollNow());
+  document.getElementById('register-another')?.addEventListener('click', () => void enrollNow());
+  document.getElementById('manage-keys')?.addEventListener('click', () => {
+    const panel = document.getElementById('keys-panel');
+    if (!panel) return;
+    panel.hidden = !panel.hidden;
+    if (!panel.hidden) void loadKeys();
   });
 
   document.getElementById('timezone')?.addEventListener('change', async (event) => {
@@ -164,7 +221,7 @@ export function bootParent(): void {
   const mutate = async (path: string, method: string, body: unknown, done?: () => void) => {
     if (busy) return;
     busy = true;
-    const result = await api<{ toast?: string; message?: string; state?: ParentState }>(path, {
+    const result = await api<{ toast?: string; message?: string; error?: string; state?: ParentState }>(path, {
       method,
       body: JSON.stringify(body),
     });
@@ -172,6 +229,11 @@ export function bootParent(): void {
     if (result.data.toast) showToast(result.data.toast);
     else if (result.data.message) showToast(result.data.message);
     if (result.status >= 200 && result.status < 300) done?.();
+    if (result.status === 403 && result.data.error === 'passkey_required') {
+      showToast(result.data.message || copy.passkeyRequired);
+      showEnroll();
+      return;
+    }
     if (result.data.state) showState(result.data.state);
     else if (result.status === 401) showGate();
   };
@@ -288,6 +350,101 @@ export function bootParent(): void {
     if (select.value !== current) select.value = current;
   };
 
+  const loadKeys = async () => {
+    const list = document.getElementById('keys-list');
+    if (!list) return;
+    const result = await api<{ passkeys?: PasskeyItem[]; message?: string }>('/api/parent/passkeys');
+    if (result.status === 401) {
+      showGate();
+      return;
+    }
+    if (result.status !== 200) {
+      if (result.data.message) showToast(result.data.message);
+      return;
+    }
+    list.replaceChildren();
+    const passkeys = result.data.passkeys ?? [];
+    if (!passkeys.length) {
+      list.append(empty('还没有 Passkey'));
+      return;
+    }
+    for (const key of passkeys) list.append(keyRow(key));
+  };
+
+  const keyRow = (key: PasskeyItem) => {
+    const card = document.createElement('div');
+    card.className = 'item-card';
+    const info = document.createElement('div');
+    info.className = 'item-info';
+    const title = document.createElement('span');
+    title.className = 'item-name';
+    title.textContent = key.friendlyName;
+    const meta = document.createElement('span');
+    meta.className = 'item-points';
+    const kind = key.backupEligible ? '可同步' : '仅此设备';
+    const used = key.lastUsedAt ? `最近使用 ${formatWhen(key.lastUsedAt)}` : '尚未使用';
+    meta.textContent = `${kind} · ${used}`;
+    const renameInput = document.createElement('input');
+    renameInput.className = 'lumi-input-custom';
+    renameInput.value = key.friendlyName;
+    renameInput.maxLength = 40;
+    renameInput.hidden = true;
+    info.append(title, meta, renameInput);
+    const actions = document.createElement('div');
+    actions.className = 'auth-actions';
+    const rename = document.createElement('button');
+    rename.type = 'button';
+    rename.className = 'action-btn small';
+    rename.textContent = '改名';
+    rename.addEventListener('click', () => {
+      if (renameInput.hidden) {
+        renameInput.hidden = false;
+        rename.textContent = '保存';
+        renameInput.focus();
+        return;
+      }
+      void saveKeyName(key.id, renameInput.value);
+    });
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'action-btn danger small';
+    remove.textContent = '删除';
+    remove.addEventListener('click', () => void removeKey(key));
+    actions.append(rename, remove);
+    card.append(info, actions);
+    return card;
+  };
+
+  const saveKeyName = async (id: string, value: string) => {
+    const name = parseName(value);
+    if (!name) {
+      showToast('请输入钥匙名称');
+      return;
+    }
+    const result = await api<{ message?: string }>(`/api/parent/passkeys/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ friendlyName: name }),
+    });
+    if (result.data.message) showToast(result.data.message);
+    if (result.status === 401) showGate();
+    else await loadKeys();
+  };
+
+  const removeKey = async (key: PasskeyItem) => {
+    if (!window.confirm(`删除「${key.friendlyName}」？删掉最后一把后，需要重新登记才能使用家长面板。邮箱链接仍然可以登录。`)) return;
+    const result = await api<{ message?: string; passkeyCount?: number }>(`/api/parent/passkeys/${key.id}`, { method: 'DELETE' });
+    if (result.data.message) showToast(result.data.message);
+    if (result.status === 401) {
+      showGate();
+      return;
+    }
+    if (result.status === 200 && result.data.passkeyCount === 0) {
+      showEnroll();
+      return;
+    }
+    await loadKeys();
+  };
+
   window.setInterval(() => {
     if (!polling || document.visibilityState === 'hidden' || busy) return;
     void refresh();
@@ -326,6 +483,12 @@ function catalogRow(name: string, meta: string, onEdit: () => void, onDelete: ()
   actions.append(edit, remove);
   card.append(info, actions);
   return card;
+}
+
+function formatWhen(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function empty(text: string): HTMLDivElement {

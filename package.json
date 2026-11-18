@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@astrojs/cloudflare": "12.6.13",
+    "@simplewebauthn/browser": "^14.0.0",
+    "@simplewebauthn/server": "^14.1.0",
     "astro": "^5.16.0",
     "hono": "^4.10.0"
   },

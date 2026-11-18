@@ -18,6 +18,9 @@ export const copy = {
   magicSent: '若该邮箱已在封闭测试名单中，登录链接已生成。',
   loggedOut: '已退出',
   timezoneSaved: '时区已更新',
+  passkeyFailed: '未能使用 Passkey，请改用登录链接。',
+  passkeyRegistered: 'Passkey 已登记',
+  passkeyRequired: '请先登记 Passkey',
 } as const;
 
 export function parseName(value: unknown, max = 40): string | null {

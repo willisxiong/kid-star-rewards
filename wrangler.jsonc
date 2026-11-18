@@ -18,7 +18,10 @@
   },
   // Plain Worker var so Production always has a sender. Secrets stay dashboard secrets.
   "vars": {
-    "EMAIL_FROM": "parent@mail.aiden-birth.com"
+    "EMAIL_FROM": "parent@mail.aiden-birth.com",
+    "APP_ORIGIN": "https://kid-star-rewards.xiongwei-fly.workers.dev",
+    "WEBAUTHN_RP_ID": "kid-star-rewards.xiongwei-fly.workers.dev",
+    "WEBAUTHN_ORIGIN": "https://kid-star-rewards.xiongwei-fly.workers.dev"
   },
   "d1_databases": [
     {

@@ -188,7 +188,7 @@ export function bootKid(initial: KidState | null): void {
 
   document.getElementById('logout')?.addEventListener('click', async () => {
     epoch += 1;
-    await api('/api/auth/logout', { method: 'POST' });
+    await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({ role: 'child' }) });
     showToast('已退出');
     showGate();
   });

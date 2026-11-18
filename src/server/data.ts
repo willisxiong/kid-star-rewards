@@ -86,7 +86,7 @@ export async function kidState(db: D1Database, familyId: string, childId: string
   };
 }
 
-export async function parentState(db: D1Database, familyId: string, parentEmail: string): Promise<ParentState> {
+export async function parentState(db: D1Database, familyId: string, parentEmail: string, parentId: string): Promise<ParentState> {
   const family = await familyOf(db, familyId);
   const localDate = localDateISO(family.timezone);
   const tasks = await db
@@ -109,6 +109,11 @@ export async function parentState(db: D1Database, familyId: string, parentEmail:
     .prepare('SELECT message, created_at FROM activity_log WHERE family_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 50')
     .bind(familyId)
     .all<LogRow>();
+  const passkeys = await db
+    .prepare('SELECT COUNT(*) AS n FROM parent_passkeys WHERE parent_id = ?')
+    .bind(parentId)
+    .first<{ n: number }>();
+  const passkeyCount = Number(passkeys?.n ?? 0);
   return {
     balance: family.star_balance,
     timezone: family.timezone,
@@ -128,6 +133,8 @@ export async function parentState(db: D1Database, familyId: string, parentEmail:
       text: item.message,
       time: localTimeHM(family.timezone, item.created_at),
     })),
+    hasPasskeys: passkeyCount > 0,
+    passkeyCount,
   };
 }
 

@@ -41,7 +41,9 @@ npm run db:setup:local
 npm run dev
 ```
 
-Open `http://127.0.0.1:4321/kid` and `http://127.0.0.1:4321/parent`.
+Open `http://localhost:4321/kid` and `http://localhost:4321/parent`.
+
+Passkeys on this machine only work at `http://localhost:4321`. Do not open `127.0.0.1`: the WebAuthn RP ID for local development is `localhost`, and a different host will not match the key. `astro dev` is pinned to that host and port.
 
 `npm run db:setup:local` applies `migrations/` to the local D1 database. The second migration inserts the demo family and is safe to leave applied. Reset by deleting `.wrangler/state` and running setup again.
 
@@ -64,13 +66,35 @@ Set these in `.dev.vars` locally. On the Worker, set them as secrets (dashboard,
 | `RESEND_API_KEY` | no | Sends the magic link with [Resend](https://resend.com/). |
 | `EMAIL_FROM` | no | From address. Resend's onboarding sender can only mail the Resend account owner until a domain is verified. |
 | `MAILCHANNELS` | no | `1` tries the Mailchannels send API when Resend is unset or fails. |
-| `APP_ORIGIN` | no | Public origin used inside the email link, for example `https://kid-star-rewards.<account-subdomain>.workers.dev`. Defaults to the request origin. |
+| `APP_ORIGIN` | no | Public origin used inside the email link. On the trial Worker this is `https://kid-star-rewards.xiongwei-fly.workers.dev`. It must match `WEBAUTHN_ORIGIN`. Requests to `http://localhost` ignore it and use that local origin, so a dev magic link is not sent to the trial host. |
+| `WEBAUTHN_RP_ID` | yes in production | Relying party ID. Trial value is the full hostname `kid-star-rewards.xiongwei-fly.workers.dev`. Never `workers.dev`, and not the account host `xiongwei-fly.workers.dev`. Localhost uses `localhost` and ignores this. |
+| `WEBAUTHN_ORIGIN` | yes in production | Exact origin for passkey ceremonies, `https://kid-star-rewards.xiongwei-fly.workers.dev` on the trial. The hostname must equal `WEBAUTHN_RP_ID`. The request Host is not used as the production RP ID. |
 
 Mail order: Resend, then Mailchannels, then the Worker log. The log line looks like `[kid-star] magic link for parent@example.com: https://...`. `npx wrangler tail` shows it on the deployed Worker. If `MAILCHANNELS=1` and `EMAIL_FROM` is unset, the sender is `noreply@kid-star-rewards.workers.dev`. Set `EMAIL_FROM` to a verified address before relying on that path.
 
-Sessions are HttpOnly, `SameSite=Lax` cookies (`ks_session`), with `Max-Age` and `Expires` set to the same lifetime. Parent sessions last 14 days. Child device sessions last 48 hours (database `expires_at` and the cookie). Binding a device is a document `POST` that answers `303` to `/kid` with `Set-Cookie` on that response. `/kid` reads the cookie while rendering: a valid child session paints the app, and a missing session paints the family-code form. API responses are `Cache-Control: private, no-store`, so a cached `401` cannot stand in for a later request that would succeed. Kid routes reject parent cookies and parent routes reject child cookies. One browser profile holds one session: binding a child device on a browser that was logged in as a parent replaces that cookie.
+Sessions are HttpOnly, `SameSite=Lax`, host-only cookies, with `Max-Age` and `Expires` set to the same lifetime. `Secure` is set only on https. Parent sessions use `ks_parent_session` and last 14 days. Child device sessions use `ks_child_session` and last 48 hours (database `expires_at` and the cookie). During the cookie split, an old `ks_session` is still accepted once: the server loads that session, sets the new cookie for `sessions.role`, and clears `ks_session`. The two new cookies can both be present. Binding a child device does not log the parent out.
+
+Binding a device is a document `POST` that answers `303` to `/kid` with `Set-Cookie` on that response. `/kid` reads the child cookie while rendering: a valid child session paints the app, and a missing session paints the family-code form. `/parent` and `/kid` HTML, and API responses, use `Cache-Control: private, no-store`. Kid routes reject parent cookies and parent routes reject child cookies.
+
+## Parent passkeys
+
+Parents sign in with a passkey after the first magic-link login. There is no public signup and no password. Children still use the family code only.
+
+1. First login is still `POST /api/auth/request` and `GET /auth/verify` for an email in `parents`. That issues the 14-day parent session and sends the parent to `/parent`.
+2. With zero passkeys, `/parent` shows a blocking enrollment screen. The primary button is 「登记 Passkey」. The screen warns that this trial is on `workers.dev`: after a move to a custom domain, existing keys stop working and the parent must use the email link to register again.
+3. Parent data writes (`/api/parent/tasks`, rewards, redemptions, family timezone) return `403` with `error: "passkey_required"` until at least one key exists. Registration, logout, passkey management, and `GET /api/parent/state` stay available. Deleting the last key locks the dashboard again. The magic link remains the recovery path.
+4. Later visits: if the browser supports WebAuthn, `/parent` shows 「使用 Passkey 登录」 first and 「发送登录链接」 second. There is no public lookup of whether an email has a key. If WebAuthn is missing, the email link is the primary button.
+5. Keys may be cloud-synced (iCloud Keychain, Google Password Manager). `residentKey` is `required`, attestation is `none`, user verification is `preferred`, and `authenticatorAttachment` is not set. A backed-up credential is accepted. A sign count is treated as a possible clone only when the key is not backup-eligible and both the stored and new counters are greater than zero and the new counter did not increase.
+
+Challenges live in D1 (`webauthn_challenges`), expire after 5 minutes, and are single-use. `webauthn_attempts` enforces 20 authenticate calls per IP per 15 minutes and 10 register calls per parent per 15 minutes. The magic-link limit (5 unconsumed links per parent per hour) is unchanged.
+
+`/parent` includes 「密钥与登录」 to list, rename, add, and delete keys.
+
+Migration `migrations/0003_passkeys.sql` creates `parent_passkeys`, `webauthn_challenges`, and `webauthn_attempts`. Do not apply it to the production or preview D1 database until Willis says so. Do not deploy this change until that migration has been applied.
 
 ## Deploy to Cloudflare Workers
+
+Do not deploy the passkey change, and do not run `wrangler d1 migrations apply` against the remote or preview database, until Willis has reviewed the pull request. `wrangler.jsonc` pins `APP_ORIGIN`, `WEBAUTHN_RP_ID`, and `WEBAUTHN_ORIGIN` to `https://kid-star-rewards.xiongwei-fly.workers.dev`. Those values take effect on the next deploy only.
 
 This is a Worker with static assets, not a Pages project. Do not run `wrangler pages deploy`.
 
@@ -83,7 +107,7 @@ The Worker name in `wrangler.jsonc` is `kid-star-rewards`. The live URL is `http
 1. `npx wrangler login` (account that should own this product).
 2. `npx wrangler d1 create kid-star-rewards`
 3. Put the printed database id into **both** `database_id` and `preview_database_id` in `wrangler.jsonc`. Using one database for production and preview keeps the single demo family in one place. Create a second database and point `preview_database_id` at it if preview deploys should stay isolated, then migrate and seed that database too.
-4. `npx wrangler d1 migrations apply kid-star-rewards --remote`
+4. `npx wrangler d1 migrations apply kid-star-rewards --remote` only after Willis accepts this passkey change. That command writes to the live D1 database. Do not run it for this pull request.
 5. `npx wrangler secret put SESSION_SECRET`
 6. Optional: `npx wrangler secret put RESEND_API_KEY`, and the same command for `EMAIL_FROM` and `APP_ORIGIN`. Set `MAGIC_LINK_DEV_ECHO` to `1` only until email works. Anyone who knows an invited address can request a link, and echo puts that link in the HTTP response.
 7. `npm run deploy`

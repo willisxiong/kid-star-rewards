@@ -1,8 +1,13 @@
 ---
+import LanguageSwitch from '../components/LanguageSwitch.astro';
+import { localeFromCookieHeader, text } from '../lib/i18n';
 import Base from '../layouts/Base.astro';
 import type { KidState } from '../lib/types';
 import { kidState } from '../server/data';
 import { resolveSessions } from '../server/sessions';
+
+const locale = localeFromCookieHeader(Astro.request.headers.get('cookie'));
+const copy = text(locale);
 
 Astro.response.headers.set('Cache-Control', 'private, no-store');
 
@@ -26,23 +31,26 @@ async function loadKidBoot(): Promise<{ state: KidState | null; showGate: boolea
   }
 }
 ---
-<Base title="/kid · 儿童星级奖励系统">
-  <p class="boot-note" id="boot" hidden={boot.showGate || Boolean(boot.state)}>正在加载…</p>
+<Base title={copy.kidTitle} locale={locale}>
+  <p class="boot-note" id="boot" hidden={boot.showGate || Boolean(boot.state)}>{copy.loading}</p>
   <div class="widget-container" id="gate" hidden={!boot.showGate}>
     <div class="app-card">
       <div class="header-row">
         <div class="app-title-group">
           <span class="material-symbols-outlined app-title-icon">auto_awesome</span>
-          <h2 class="app-title">儿童星级奖励系统</h2>
+          <h2 class="app-title">{copy.productName}</h2>
         </div>
-        <span class="route-chip">/kid</span>
+        <div class="header-tools">
+          <LanguageSwitch locale={locale} />
+          <span class="route-chip">/kid</span>
+        </div>
       </div>
-      <p class="auth-note" id="gate-note">输入家庭码，把这台设备绑定到家庭。同一个家庭码可以绑定多台设备。</p>
+      <p class="auth-note" id="gate-note">{copy.gateNote}</p>
       <form id="code-form" class="auth-stack" method="post" action="/api/auth/child">
-        <input id="family-code-input" class="lumi-input-custom" name="familyCode" autocomplete="off" placeholder="家庭码 (例: STAR-4821)" />
+        <input id="family-code-input" class="lumi-input-custom" name="familyCode" autocomplete="off" placeholder={copy.familyCodePlaceholder} />
         <div class="auth-actions">
-          <button class="action-btn primary" type="submit">绑定这台设备</button>
-          <a class="text-link" href="/parent">我是家长</a>
+          <button class="action-btn primary" type="submit">{copy.bindDevice}</button>
+          <a class="text-link" href="/parent">{copy.imParent}</a>
         </div>
       </form>
     </div>
@@ -52,22 +60,25 @@ async function loadKidBoot(): Promise<{ state: KidState | null; showGate: boolea
       <div class="header-row">
         <div class="app-title-group">
           <span class="material-symbols-outlined app-title-icon">auto_awesome</span>
-          <h2 class="app-title">儿童星级奖励系统</h2>
+          <h2 class="app-title">{copy.productName}</h2>
         </div>
-        <span class="route-chip">/kid</span>
+        <div class="header-tools">
+          <LanguageSwitch locale={locale} />
+          <span class="route-chip">/kid</span>
+        </div>
       </div>
       <div class="meta-row">
-        <span class="route-chip" id="child-name">{boot.state?.childName ?? '儿童'}</span>
-        <button class="action-btn small" type="button" id="logout">退出此设备</button>
+        <span class="route-chip" id="child-name">{boot.state?.childName ?? copy.childFallback}</span>
+        <button class="action-btn small" type="button" id="logout">{copy.signOutDevice}</button>
       </div>
       <div class="hero-banner">
         <div>
           <div class="balance-label">
-            <span class="material-symbols-outlined fill" style="font-size: 16px; color: #f59e0b;">stars</span> 当前可用积分
+            <span class="material-symbols-outlined fill" style="font-size: 16px; color: #f59e0b;">stars</span> {copy.starsAvailable}
           </div>
           <div class="balance-num">
             <span id="balance">{boot.state?.balance ?? 0}</span>
-            <span class="balance-unit">星</span>
+            <span class="balance-unit">{copy.starUnit}</span>
           </div>
         </div>
         <span class="material-symbols-outlined star-hero-icon">star</span>
@@ -75,13 +86,13 @@ async function loadKidBoot(): Promise<{ state: KidState | null; showGate: boolea
       <div class="view-col">
         <div class="section">
           <div class="section-title">
-            <span class="material-symbols-outlined" style="color: #3186ff;">task_alt</span> 每日打卡任务
+            <span class="material-symbols-outlined" style="color: #3186ff;">task_alt</span> {copy.dailyTasks}
           </div>
           <div class="grid-cards" id="task-grid"></div>
         </div>
         <div class="section">
           <div class="section-title">
-            <span class="material-symbols-outlined" style="color: #f59e0b;">redeem</span> 奖励心愿单
+            <span class="material-symbols-outlined" style="color: #f59e0b;">redeem</span> {copy.wishlist}
           </div>
           <div class="grid-cards" id="reward-grid"></div>
         </div>

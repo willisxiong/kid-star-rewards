@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import { copy, normalizeEmail, normalizeFamilyCode, parseName, parsePoints } from '../lib/validate';
+import { errorText, localeFromCookieHeader, text, type Locale } from '../lib/i18n';
+import { normalizeEmail, normalizeFamilyCode, parseName, parsePoints } from '../lib/validate';
 import type { AppEnv } from './context';
 import {
   addReward,
@@ -45,11 +46,12 @@ export const app = new Hono<AppEnv>();
 
 app.onError((error, c) => {
   noStore(c);
+  const locale = requestLocale(c);
   if (error instanceof HttpError) {
-    return c.json({ error: error.code, message: error.message }, error.status as 400);
+    return c.json({ error: error.code, message: errorText(locale, error.key) }, error.status as 400);
   }
   console.error('[kid-star]', error);
-  return c.json({ error: 'server', message: '系统繁忙，请稍后再试' }, 500);
+  return c.json({ error: 'server', message: text(locale).serverBusy }, 500);
 });
 
 app.use('*', async (c, next) => {
@@ -69,9 +71,9 @@ app.use('*', async (c, next) => {
     try {
       originHost = new URL(origin).host;
     } catch {
-      throw new HttpError(403, '来源不被允许');
+      throw new HttpError(403, 'originDenied');
     }
-    if (originHost !== new URL(c.req.url).host) throw new HttpError(403, '来源不被允许');
+    if (originHost !== new URL(c.req.url).host) throw new HttpError(403, 'originDenied');
   }
   await next();
 });
@@ -107,14 +109,14 @@ app.post('/api/auth/logout', async (c) => {
   for (const name of names) {
     c.header('Set-Cookie', clearSessionCookie(name, c.req.url), { append: true });
   }
-  return c.json({ ok: true, message: copy.loggedOut });
+  return c.json({ ok: true, message: text(requestLocale(c)).loggedOut });
 });
 
 app.post('/api/auth/request', async (c) => {
   const secret = requireSecret(c.env);
   const body = await readBody(c);
   const email = normalizeEmail(body.email);
-  if (!email) throw new HttpError(400, '请输入有效的邮箱');
+  if (!email) throw new HttpError(400, 'emailInvalid');
   const parent = await c.env.DB.prepare('SELECT id FROM parents WHERE email = ?').bind(email).first<{ id: string }>();
   let devLink: string | undefined;
   if (parent) {
@@ -140,7 +142,7 @@ app.post('/api/auth/request', async (c) => {
       console.log(`[kid-star] magic link rate limit for ${email}`);
     }
   }
-  return c.json({ ok: true, message: copy.magicSent, devLink });
+  return c.json({ ok: true, message: text(requestLocale(c)).magicSent, devLink });
 });
 
 app.get('/auth/verify', async (c) => {
@@ -177,18 +179,18 @@ app.get('/auth/verify', async (c) => {
 
 app.post('/api/auth/child', async (c) => {
   const wantsJson = (c.req.header('content-type') ?? '').includes('application/json');
-  const deny = (status: 400, message: string, code: string) => {
-    if (wantsJson) throw new HttpError(status, message);
+  const deny = (status: 400, key: 'codeInvalid' | 'noChild', code: string) => {
+    if (wantsJson) throw new HttpError(status, key);
     return c.redirect(`/kid?bind=${code}`, 303);
   };
   const secret = requireSecret(c.env);
   const familyCode = await readFamilyCode(c);
   const code = normalizeFamilyCode(familyCode);
-  if (!code) return deny(400, copy.codeInvalid, 'invalid');
+  if (!code) return deny(400, 'codeInvalid', 'invalid');
   const family = await c.env.DB.prepare('SELECT id FROM families WHERE family_code = ?').bind(code).first<{ id: string }>();
-  if (!family) return deny(400, copy.codeInvalid, 'invalid');
+  if (!family) return deny(400, 'codeInvalid', 'invalid');
   const child = await c.env.DB.prepare('SELECT id FROM children WHERE family_id = ?').bind(family.id).first<{ id: string }>();
-  if (!child) return deny(400, '这个家庭还没有儿童账号', 'nochild');
+  if (!child) return deny(400, 'noChild', 'nochild');
   const now = nowIso();
   const deviceId = crypto.randomUUID();
   const sessionToken = randomToken();
@@ -221,9 +223,11 @@ app.post('/api/kid/checkin', async (c) => {
   const session = await requireRole(c, 'child');
   const body = await readBody(c);
   const taskId = typeof body.taskId === 'string' ? body.taskId : '';
-  if (!taskId) throw new HttpError(400, copy.taskInvalid);
-  const result = await checkIn(c.env.DB, session.family_id, session.child_id!, taskId);
+  if (!taskId) throw new HttpError(400, 'taskInvalid');
+  const locale = requestLocale(c);
+  const result = await checkIn(c.env.DB, session.family_id, session.child_id!, taskId, locale);
   const state = await kidState(c.env.DB, session.family_id, session.child_id!);
+  const copy = text(locale);
   return c.json({
     ok: true,
     already: result.already,
@@ -236,10 +240,11 @@ app.post('/api/kid/redeem', async (c) => {
   const session = await requireRole(c, 'child');
   const body = await readBody(c);
   const rewardId = typeof body.rewardId === 'string' ? body.rewardId : '';
-  if (!rewardId) throw new HttpError(400, copy.rewardInvalid);
-  await redeem(c.env.DB, session.family_id, rewardId);
+  if (!rewardId) throw new HttpError(400, 'rewardInvalid');
+  const locale = requestLocale(c);
+  await redeem(c.env.DB, session.family_id, rewardId, locale);
   const state = await kidState(c.env.DB, session.family_id, session.child_id!);
-  return c.json({ ok: true, toast: copy.redeemPending, state });
+  return c.json({ ok: true, toast: text(locale).redeemPending, state });
 });
 
 app.get('/api/parent/state', async (c) => {
@@ -249,16 +254,18 @@ app.get('/api/parent/state', async (c) => {
 
 app.post('/api/parent/redemptions/:id/approve', async (c) => {
   const session = await requireParentReady(c);
-  const result = await resolveRedemption(c.env.DB, session.family_id, session.parent_id!, c.req.param('id'), 'approved');
+  const locale = requestLocale(c);
+  const result = await resolveRedemption(c.env.DB, session.family_id, session.parent_id!, c.req.param('id'), 'approved', locale);
   const state = await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!);
-  return c.json({ ok: true, toast: copy.approved(result.name), state });
+  return c.json({ ok: true, toast: text(locale).approved(result.name), state });
 });
 
 app.post('/api/parent/redemptions/:id/reject', async (c) => {
   const session = await requireParentReady(c);
-  await resolveRedemption(c.env.DB, session.family_id, session.parent_id!, c.req.param('id'), 'rejected');
+  const locale = requestLocale(c);
+  await resolveRedemption(c.env.DB, session.family_id, session.parent_id!, c.req.param('id'), 'rejected', locale);
   const state = await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!);
-  return c.json({ ok: true, toast: copy.rejected, state });
+  return c.json({ ok: true, toast: text(locale).rejected, state });
 });
 
 app.post('/api/parent/tasks', async (c) => {
@@ -266,9 +273,10 @@ app.post('/api/parent/tasks', async (c) => {
   const body = await readBody(c);
   const name = parseName(body.name);
   const points = parsePoints(body.points);
-  if (!name || points == null) throw new HttpError(400, copy.taskInvalid);
-  await addTask(c.env.DB, session.family_id, name, points);
-  return c.json({ ok: true, toast: copy.taskAdded, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  if (!name || points == null) throw new HttpError(400, 'taskInvalid');
+  const locale = requestLocale(c);
+  await addTask(c.env.DB, session.family_id, name, points, locale);
+  return c.json({ ok: true, toast: text(locale).taskAdded, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 app.patch('/api/parent/tasks/:id', async (c) => {
@@ -276,15 +284,17 @@ app.patch('/api/parent/tasks/:id', async (c) => {
   const body = await readBody(c);
   const name = parseName(body.name);
   const points = parsePoints(body.points);
-  if (!name || points == null) throw new HttpError(400, copy.taskInvalid);
-  await updateTask(c.env.DB, session.family_id, c.req.param('id'), name, points);
-  return c.json({ ok: true, toast: copy.taskUpdated, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  if (!name || points == null) throw new HttpError(400, 'taskInvalid');
+  const locale = requestLocale(c);
+  await updateTask(c.env.DB, session.family_id, c.req.param('id'), name, points, locale);
+  return c.json({ ok: true, toast: text(locale).taskUpdated, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 app.delete('/api/parent/tasks/:id', async (c) => {
   const session = await requireParentReady(c);
-  await disableTask(c.env.DB, session.family_id, c.req.param('id'));
-  return c.json({ ok: true, toast: copy.taskDisabled, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  const locale = requestLocale(c);
+  await disableTask(c.env.DB, session.family_id, c.req.param('id'), locale);
+  return c.json({ ok: true, toast: text(locale).taskDisabled, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 app.post('/api/parent/rewards', async (c) => {
@@ -292,9 +302,10 @@ app.post('/api/parent/rewards', async (c) => {
   const body = await readBody(c);
   const name = parseName(body.name);
   const cost = parsePoints(body.cost, 9999);
-  if (!name || cost == null) throw new HttpError(400, copy.rewardInvalid);
-  await addReward(c.env.DB, session.family_id, name, cost);
-  return c.json({ ok: true, toast: copy.rewardAdded, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  if (!name || cost == null) throw new HttpError(400, 'rewardInvalid');
+  const locale = requestLocale(c);
+  await addReward(c.env.DB, session.family_id, name, cost, locale);
+  return c.json({ ok: true, toast: text(locale).rewardAdded, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 app.patch('/api/parent/rewards/:id', async (c) => {
@@ -302,23 +313,26 @@ app.patch('/api/parent/rewards/:id', async (c) => {
   const body = await readBody(c);
   const name = parseName(body.name);
   const cost = parsePoints(body.cost, 9999);
-  if (!name || cost == null) throw new HttpError(400, copy.rewardInvalid);
-  await updateReward(c.env.DB, session.family_id, c.req.param('id'), name, cost);
-  return c.json({ ok: true, toast: copy.rewardUpdated, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  if (!name || cost == null) throw new HttpError(400, 'rewardInvalid');
+  const locale = requestLocale(c);
+  await updateReward(c.env.DB, session.family_id, c.req.param('id'), name, cost, locale);
+  return c.json({ ok: true, toast: text(locale).rewardUpdated, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 app.delete('/api/parent/rewards/:id', async (c) => {
   const session = await requireParentReady(c);
-  await disableReward(c.env.DB, session.family_id, c.req.param('id'));
-  return c.json({ ok: true, toast: copy.rewardDisabled, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  const locale = requestLocale(c);
+  await disableReward(c.env.DB, session.family_id, c.req.param('id'), locale);
+  return c.json({ ok: true, toast: text(locale).rewardDisabled, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 app.patch('/api/parent/family', async (c) => {
   const session = await requireParentReady(c);
   const body = await readBody(c);
   const timezone = typeof body.timezone === 'string' ? body.timezone.trim() : '';
-  await setTimezone(c.env.DB, session.family_id, timezone);
-  return c.json({ ok: true, toast: copy.timezoneSaved, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+  const locale = requestLocale(c);
+  await setTimezone(c.env.DB, session.family_id, timezone, locale);
+  return c.json({ ok: true, toast: text(locale).timezoneSaved, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
 mountPasskeyRoutes(app, {
@@ -331,6 +345,10 @@ export function publicOrigin(env: Env, requestUrl: string): string {
   const url = new URL(requestUrl);
   if (url.protocol === 'http:' && url.hostname === 'localhost') return url.origin;
   return (env.APP_ORIGIN || url.origin).replace(/\/$/, '');
+}
+
+function requestLocale(c: Context<AppEnv>): Locale {
+  return localeFromCookieHeader(c.req.header('cookie'));
 }
 
 function noStore(c: Context<AppEnv>): void {
@@ -356,7 +374,7 @@ async function readFamilyCode(c: Context<AppEnv>): Promise<string> {
 async function readBody(c: Context<AppEnv>): Promise<Record<string, unknown>> {
   const body = await readBodyOptional(c);
   if (!Object.keys(body).length && !(c.req.header('content-type') ?? '').includes('json')) {
-    throw new HttpError(400, '请求格式不正确');
+    throw new HttpError(400, 'badRequest');
   }
   return body;
 }
@@ -366,16 +384,16 @@ async function readBodyOptional(c: Context<AppEnv>): Promise<Record<string, unkn
   try {
     text = await c.req.text();
   } catch {
-    throw new HttpError(400, '请求格式不正确');
+    throw new HttpError(400, 'badRequest');
   }
   if (!text.trim()) return {};
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch {
-    throw new HttpError(400, '请求格式不正确');
+    throw new HttpError(400, 'badRequest');
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, '请求格式不正确');
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new HttpError(400, 'badRequest');
   return value as Record<string, unknown>;
 }
 
@@ -406,16 +424,16 @@ async function optionalSession(c: Context<AppEnv>): Promise<SessionRow | null> {
 async function requireRole(c: Context<AppEnv>, role: 'parent' | 'child'): Promise<SessionRow> {
   const sessions = await readSessions(c);
   const session = role === 'parent' ? sessions.parent : sessions.child;
-  if (!session) throw new HttpError(401, '请先登录');
-  if (role === 'child' && !session.child_id) throw new HttpError(401, '请先绑定设备');
-  if (role === 'parent' && !session.parent_id) throw new HttpError(401, '请先登录');
+  if (!session) throw new HttpError(401, 'loginRequired');
+  if (role === 'child' && !session.child_id) throw new HttpError(401, 'bindRequired');
+  if (role === 'parent' && !session.parent_id) throw new HttpError(401, 'loginRequired');
   return session;
 }
 
 async function requireParentReady(c: Context<AppEnv>): Promise<SessionRow> {
   const session = await requireRole(c, 'parent');
   if ((await passkeyCount(c.env.DB, session.parent_id!)) < 1) {
-    throw new HttpError(403, copy.passkeyRequired, 'passkey_required');
+    throw new HttpError(403, 'passkeyRequired', 'passkey_required');
   }
   return session;
 }

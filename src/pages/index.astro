@@ -1,20 +1,30 @@
 ---
+import LanguageSwitch from '../components/LanguageSwitch.astro';
+import { localeFromCookieHeader, text } from '../lib/i18n';
 import Base from '../layouts/Base.astro';
+
+Astro.response.headers.set('Cache-Control', 'private, no-store');
+
+const locale = localeFromCookieHeader(Astro.request.headers.get('cookie'));
+const copy = text(locale);
 ---
-<Base title="儿童星级奖励系统">
+<Base title={copy.productName} locale={locale}>
   <div class="index-wrap">
-    <h1>儿童星级奖励系统</h1>
-    <p class="sub">封闭测试。家庭由邀请名单建立，没有公开注册。儿童用家庭码绑定设备。家长使用 Passkey，或用登录链接第一次登录。</p>
+    <div class="header-row">
+      <h1>{copy.productName}</h1>
+      <LanguageSwitch locale={locale} />
+    </div>
+    <p class="sub">{copy.indexIntro}</p>
     <div class="entry-row">
       <a class="entry-card" href="/kid">
         <span class="tag">/kid</span>
-        <div class="name">儿童端</div>
-        <div class="note">每日打卡加星，兑换奖励会先冻结星星，等家长确认。</div>
+        <div class="name">{copy.kidEntry}</div>
+        <div class="note">{copy.kidEntryNote}</div>
       </a>
       <a class="entry-card parent" href="/parent">
         <span class="tag">/parent</span>
-        <div class="name">家长端</div>
-        <div class="note">使用 Passkey 或登录链接。同意或拒绝兑换，管理任务和奖励。</div>
+        <div class="name">{copy.parentEntry}</div>
+        <div class="note">{copy.parentEntryNote}</div>
       </a>
     </div>
   </div>

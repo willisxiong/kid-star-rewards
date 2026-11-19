@@ -1,4 +1,5 @@
 import type { Context, Hono } from 'hono';
+import { localeFromCookieHeader, text } from '../lib/i18n';
 import { parseName } from '../lib/validate';
 import type { SessionRow } from './data';
 import type { AppEnv } from './context';
@@ -43,8 +44,9 @@ export function mountPasskeyRoutes(app: Hono<AppEnv>, deps: Deps): void {
     const session = await deps.requireParent(c);
     await assertRateLimit(c.env.DB, 'register', `parent:${session.parent_id}`, REGISTER_LIMIT);
     const body = asRegistrationResponse(await deps.readBody(c));
-    const saved = await verifyRegistration(c.env.DB, webauthnRelyingParty(c.env, c.req.url), session.parent_id!, body);
-    return c.json({ ok: true, message: 'Passkey 已登记', id: saved.id, passkeyCount: saved.passkeyCount });
+    const locale = localeFromCookieHeader(c.req.header('cookie'));
+    const saved = await verifyRegistration(c.env.DB, webauthnRelyingParty(c.env, c.req.url), session.parent_id!, body, locale);
+    return c.json({ ok: true, message: text(locale).passkeyRegistered, id: saved.id, passkeyCount: saved.passkeyCount });
   });
 
   app.post('/api/auth/passkey/authenticate/options', async (c) => {
@@ -58,7 +60,8 @@ export function mountPasskeyRoutes(app: Hono<AppEnv>, deps: Deps): void {
     const body = asAuthenticationResponse(await deps.readBody(c));
     const parent = await verifyAuthentication(c.env.DB, webauthnRelyingParty(c.env, c.req.url), body);
     await deps.issueParentSession(c, parent.parentId, parent.familyId);
-    return c.json({ ok: true, message: '已使用 Passkey 登录' });
+    const locale = localeFromCookieHeader(c.req.header('cookie'));
+    return c.json({ ok: true, message: text(locale).passkeySignedIn });
   });
 
   app.get('/api/parent/passkeys', async (c) => {
@@ -70,17 +73,19 @@ export function mountPasskeyRoutes(app: Hono<AppEnv>, deps: Deps): void {
     const session = await deps.requireParent(c);
     const body = await deps.readBody(c);
     const name = parseName(body.friendlyName ?? body.name, 40);
-    if (!name) throw new HttpError(400, '请输入钥匙名称');
+    if (!name) throw new HttpError(400, 'keyNameRequired');
     await renamePasskey(c.env.DB, session.parent_id!, c.req.param('id'), name);
-    return c.json({ ok: true, message: '已更新名称', passkeys: await listPasskeys(c.env.DB, session.parent_id!) });
+    const locale = localeFromCookieHeader(c.req.header('cookie'));
+    return c.json({ ok: true, message: text(locale).keyRenamed, passkeys: await listPasskeys(c.env.DB, session.parent_id!) });
   });
 
   app.delete('/api/parent/passkeys/:id', async (c) => {
     const session = await deps.requireParent(c);
     const passkeyCount = await deletePasskey(c.env.DB, session.parent_id!, c.req.param('id'));
+    const copy = text(localeFromCookieHeader(c.req.header('cookie')));
     return c.json({
       ok: true,
-      message: passkeyCount === 0 ? '已删除最后一把 Passkey，请重新登记' : '已删除这把 Passkey',
+      message: passkeyCount === 0 ? copy.keyDeletedLast : copy.keyDeleted,
       passkeyCount,
     });
   });

@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { copy, normalizeFamilyCode, parseName, parsePoints } from './validate.ts';
+import { text } from './i18n.ts';
+import { normalizeFamilyCode, parseName, parsePoints } from './validate.ts';
 
 test('reward validation copy is not the task-name toast', () => {
-  assert.notEqual(copy.rewardInvalid, copy.taskInvalid);
-  assert.match(copy.rewardInvalid, /奖励名称/);
-  assert.match(copy.taskInvalid, /任务名称/);
+  for (const locale of ['en', 'zh-CN'] as const) {
+    const copy = text(locale);
+    assert.notEqual(copy.rewardInvalid, copy.taskInvalid);
+  }
+  assert.match(text('en').rewardInvalid, /reward name/i);
+  assert.match(text('en').taskInvalid, /task name/i);
+  assert.match(text('zh-CN').rewardInvalid, /奖励名称/);
+  assert.match(text('zh-CN').taskInvalid, /任务名称/);
 });
 
 test('parse helpers reject empty and non-integers', () => {

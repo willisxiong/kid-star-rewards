@@ -1,0 +1,14 @@
+---
+import { text, type Locale } from '../lib/i18n';
+
+interface Props {
+  locale: Locale;
+}
+
+const { locale } = Astro.props;
+const copy = text(locale);
+---
+<div class="lang-switch" role="group" aria-label={copy.languageLabel}>
+  <button type="button" data-set-lang="en" aria-pressed={locale === 'en' ? 'true' : 'false'} translate="no">English</button>
+  <button type="button" data-set-lang="zh-CN" aria-pressed={locale === 'zh-CN' ? 'true' : 'false'} translate="no">中文</button>
+</div>

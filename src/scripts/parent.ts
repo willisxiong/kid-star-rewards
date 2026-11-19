@@ -1,5 +1,6 @@
+import { currentLocale, text } from '../lib/i18n';
 import type { ParentState, PasskeyItem } from '../lib/types';
-import { copy, parseName, parsePoints } from '../lib/validate';
+import { parseName, parsePoints } from '../lib/validate';
 import { api, showToast } from './api';
 import { authenticateWithPasskey, browserSupportsPasskey, registerPasskey } from './passkey-client';
 
@@ -28,6 +29,7 @@ export function bootParent(): void {
   const form = document.getElementById('email-form') as HTMLFormElement | null;
   if (!boot || !gate || !enroll || !app || !form) return;
 
+  const ui = () => text(currentLocale());
   const supportsPasskey = browserSupportsPasskey();
   const passkeyButton = document.getElementById('passkey-login');
   const sendLink = document.getElementById('send-link');
@@ -43,7 +45,7 @@ export function bootParent(): void {
   let editing: EditTarget = null;
   let fingerprint = '';
   const params = new URLSearchParams(location.search);
-  if (params.get('link') === 'invalid') showToast(copy.linkInvalid);
+  if (params.get('link') === 'invalid') showToast(ui().linkInvalid);
 
   const showGate = () => {
     fingerprint = '';
@@ -78,7 +80,7 @@ export function bootParent(): void {
     const balance = document.getElementById('balance');
     if (balance) balance.textContent = String(state.balance);
     const code = document.getElementById('family-code');
-    if (code) code.textContent = `家庭码 ${state.familyCode}`;
+    if (code) code.textContent = ui().familyCode(state.familyCode);
     fillTimezones(state.timezone);
     renderPending(state);
     renderCatalog(state);
@@ -104,7 +106,7 @@ export function bootParent(): void {
     const result = await registerPasskey();
     showToast(result.message);
     if (result.ok) await refresh();
-    else if (result.message === '请先登录') showGate();
+    else if (result.unauthorized) showGate();
   };
 
   form.addEventListener('submit', async (event) => {
@@ -118,13 +120,13 @@ export function bootParent(): void {
     });
     if (button) button.disabled = false;
     if (result.status !== 200) {
-      showToast(result.data.message || '请输入有效的邮箱');
+      showToast(result.data.message || ui().emailInvalid);
       return;
     }
     const note = document.getElementById('sent-note');
     if (note) {
       note.hidden = false;
-      note.textContent = result.data.message || copy.magicSent;
+      note.textContent = result.data.message || ui().magicSent;
     }
     const dev = document.getElementById('dev-link');
     if (dev) {
@@ -136,7 +138,7 @@ export function bootParent(): void {
         dev.textContent = '';
       }
     }
-    showToast(result.data.message || copy.magicSent);
+    showToast(result.data.message || ui().magicSent);
   });
 
   document.getElementById('passkey-login')?.addEventListener('click', async () => {
@@ -145,7 +147,7 @@ export function bootParent(): void {
     const result = await authenticateWithPasskey();
     if (button) button.disabled = false;
     if (!result.ok) {
-      showToast(copy.passkeyFailed);
+      showToast(ui().passkeyFailed);
       return;
     }
     showToast(result.message);
@@ -154,7 +156,7 @@ export function bootParent(): void {
 
   const logout = async () => {
     await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({ role: 'parent' }) });
-    showToast(copy.loggedOut);
+    showToast(ui().loggedOut);
     showGate();
   };
   document.getElementById('logout')?.addEventListener('click', () => void logout());
@@ -188,7 +190,7 @@ export function bootParent(): void {
     const name = parseName(nameInput?.value);
     const points = parsePoints(pointsInput?.value);
     if (!name || points == null) {
-      showToast(copy.taskInvalid);
+      showToast(ui().taskInvalid);
       return;
     }
     const path = editing?.kind === 'task' ? `/api/parent/tasks/${editing.id}` : '/api/parent/tasks';
@@ -206,7 +208,7 @@ export function bootParent(): void {
     const name = parseName(nameInput?.value);
     const cost = parsePoints(costInput?.value, 9999);
     if (!name || cost == null) {
-      showToast(copy.rewardInvalid);
+      showToast(ui().rewardInvalid);
       return;
     }
     const path = editing?.kind === 'reward' ? `/api/parent/rewards/${editing.id}` : '/api/parent/rewards';
@@ -230,7 +232,7 @@ export function bootParent(): void {
     else if (result.data.message) showToast(result.data.message);
     if (result.status >= 200 && result.status < 300) done?.();
     if (result.status === 403 && result.data.error === 'passkey_required') {
-      showToast(result.data.message || copy.passkeyRequired);
+      showToast(result.data.message || ui().passkeyRequired);
       showEnroll();
       return;
     }
@@ -241,7 +243,7 @@ export function bootParent(): void {
   const clearEdit = (kind: 'task' | 'reward') => {
     if (editing?.kind === kind) editing = null;
     const button = document.getElementById(kind === 'task' ? 'add-task' : 'add-reward');
-    if (button) button.textContent = kind === 'task' ? '添加任务' : '添加奖励';
+    if (button) button.textContent = kind === 'task' ? ui().addTask : ui().addReward;
   };
 
   const renderPending = (state: ParentState) => {
@@ -251,7 +253,7 @@ export function bootParent(): void {
     list.replaceChildren();
     if (!state.pending.length) {
       badge.hidden = true;
-      list.append(empty('暂无待审核的兑换申请'));
+      list.append(empty(ui().noPending));
       return;
     }
     badge.hidden = false;
@@ -263,10 +265,10 @@ export function bootParent(): void {
       info.className = 'item-info';
       const name = document.createElement('span');
       name.className = 'item-name';
-      name.textContent = `申请兑换：${item.name}`;
+      name.textContent = ui().pendingName(item.name);
       const points = document.createElement('span');
       points.className = 'item-points';
-      points.textContent = `扣除 ${item.cost} 星 · 申请时间 ${item.time}`;
+      points.textContent = ui().pendingMeta(item.cost, item.time);
       info.append(name, points);
       const actions = document.createElement('div');
       actions.style.display = 'flex';
@@ -274,12 +276,12 @@ export function bootParent(): void {
       const approve = document.createElement('button');
       approve.type = 'button';
       approve.className = 'action-btn success small';
-      approve.textContent = '同意';
+      approve.textContent = ui().approve;
       approve.addEventListener('click', () => void mutate(`/api/parent/redemptions/${item.id}/approve`, 'POST', {}));
       const reject = document.createElement('button');
       reject.type = 'button';
       reject.className = 'action-btn danger small';
-      reject.textContent = '拒绝';
+      reject.textContent = ui().reject;
       reject.addEventListener('click', () => void mutate(`/api/parent/redemptions/${item.id}/reject`, 'POST', {}));
       actions.append(approve, reject);
       card.append(info, actions);
@@ -294,25 +296,25 @@ export function bootParent(): void {
     tasks.replaceChildren();
     rewards.replaceChildren();
     for (const task of state.tasks) {
-      tasks.append(catalogRow(task.name, `+${task.points} 星`, () => {
+      tasks.append(catalogRow(task.name, ui().plusStars(task.points), () => {
         editing = { kind: 'task', id: task.id };
         const nameInput = document.getElementById('task-name') as HTMLInputElement | null;
         const pointsInput = document.getElementById('task-points') as HTMLInputElement | null;
         if (nameInput) nameInput.value = task.name;
         if (pointsInput) pointsInput.value = String(task.points);
         const button = document.getElementById('add-task');
-        if (button) button.textContent = '保存修改';
+        if (button) button.textContent = ui().saveChanges;
       }, () => void mutate(`/api/parent/tasks/${task.id}`, 'DELETE', {})));
     }
     for (const reward of state.rewards) {
-      rewards.append(catalogRow(reward.name, `${reward.cost} 星`, () => {
+      rewards.append(catalogRow(reward.name, ui().starCount(reward.cost), () => {
         editing = { kind: 'reward', id: reward.id };
         const nameInput = document.getElementById('reward-name') as HTMLInputElement | null;
         const costInput = document.getElementById('reward-cost') as HTMLInputElement | null;
         if (nameInput) nameInput.value = reward.name;
         if (costInput) costInput.value = String(reward.cost);
         const button = document.getElementById('add-reward');
-        if (button) button.textContent = '保存修改';
+        if (button) button.textContent = ui().saveChanges;
       }, () => void mutate(`/api/parent/rewards/${reward.id}`, 'DELETE', {})));
     }
   };
@@ -365,7 +367,7 @@ export function bootParent(): void {
     list.replaceChildren();
     const passkeys = result.data.passkeys ?? [];
     if (!passkeys.length) {
-      list.append(empty('还没有 Passkey'));
+      list.append(empty(ui().noPasskeys));
       return;
     }
     for (const key of passkeys) list.append(keyRow(key));
@@ -381,8 +383,8 @@ export function bootParent(): void {
     title.textContent = key.friendlyName;
     const meta = document.createElement('span');
     meta.className = 'item-points';
-    const kind = key.backupEligible ? '可同步' : '仅此设备';
-    const used = key.lastUsedAt ? `最近使用 ${formatWhen(key.lastUsedAt)}` : '尚未使用';
+    const kind = key.backupEligible ? ui().synced : ui().thisDevice;
+    const used = key.lastUsedAt ? ui().lastUsed(formatWhen(key.lastUsedAt)) : ui().notUsed;
     meta.textContent = `${kind} · ${used}`;
     const renameInput = document.createElement('input');
     renameInput.className = 'lumi-input-custom';
@@ -395,11 +397,11 @@ export function bootParent(): void {
     const rename = document.createElement('button');
     rename.type = 'button';
     rename.className = 'action-btn small';
-    rename.textContent = '改名';
+    rename.textContent = ui().rename;
     rename.addEventListener('click', () => {
       if (renameInput.hidden) {
         renameInput.hidden = false;
-        rename.textContent = '保存';
+        rename.textContent = ui().save;
         renameInput.focus();
         return;
       }
@@ -408,7 +410,7 @@ export function bootParent(): void {
     const remove = document.createElement('button');
     remove.type = 'button';
     remove.className = 'action-btn danger small';
-    remove.textContent = '删除';
+    remove.textContent = ui().delete;
     remove.addEventListener('click', () => void removeKey(key));
     actions.append(rename, remove);
     card.append(info, actions);
@@ -418,7 +420,7 @@ export function bootParent(): void {
   const saveKeyName = async (id: string, value: string) => {
     const name = parseName(value);
     if (!name) {
-      showToast('请输入钥匙名称');
+      showToast(ui().keyNameRequired);
       return;
     }
     const result = await api<{ message?: string }>(`/api/parent/passkeys/${id}`, {
@@ -431,7 +433,7 @@ export function bootParent(): void {
   };
 
   const removeKey = async (key: PasskeyItem) => {
-    if (!window.confirm(`删除「${key.friendlyName}」？删掉最后一把后，需要重新登记才能使用家长面板。邮箱链接仍然可以登录。`)) return;
+    if (!window.confirm(ui().deleteConfirm(key.friendlyName))) return;
     const result = await api<{ message?: string; passkeyCount?: number }>(`/api/parent/passkeys/${key.id}`, { method: 'DELETE' });
     if (result.data.message) showToast(result.data.message);
     if (result.status === 401) {
@@ -473,12 +475,12 @@ function catalogRow(name: string, meta: string, onEdit: () => void, onDelete: ()
   const edit = document.createElement('button');
   edit.type = 'button';
   edit.className = 'action-btn small';
-  edit.textContent = '编辑';
+  edit.textContent = text(currentLocale()).edit;
   edit.addEventListener('click', onEdit);
   const remove = document.createElement('button');
   remove.type = 'button';
   remove.className = 'action-btn danger small';
-  remove.textContent = '停用';
+  remove.textContent = text(currentLocale()).turnOff;
   remove.addEventListener('click', onDelete);
   actions.append(edit, remove);
   card.append(info, actions);
@@ -488,7 +490,8 @@ function catalogRow(name: string, meta: string, onEdit: () => void, onDelete: ()
 function formatWhen(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString('zh-CN', { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const locale = currentLocale();
+  return date.toLocaleString(locale, { hour12: false, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
 function empty(text: string): HTMLDivElement {

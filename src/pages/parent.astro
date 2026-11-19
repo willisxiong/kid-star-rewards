@@ -114,9 +114,23 @@ const copy = text(locale);
           <div class="section-title">
             <span class="material-symbols-outlined" style="color: #3186ff;">add_task</span> {copy.addTaskSection}
           </div>
+          <p class="auth-note task-form-note">{copy.taskFormNote}</p>
+          <div class="form-row task-kind-row">
+            <label class="labeled-field">
+              <span>{copy.taskKindLabel}</span>
+              <select id="task-kind" class="lumi-input-custom">
+                <option value="daily">{copy.taskKindDaily}</option>
+                <option value="starburst">{copy.taskKindBurst}</option>
+              </select>
+            </label>
+            <label class="labeled-field" id="task-limit-field">
+              <span>{copy.dailyLimitLabel}</span>
+              <input id="task-daily-limit" class="lumi-input-custom" type="number" inputmode="numeric" min="1" max="9" step="1" value="1" />
+            </label>
+          </div>
           <div class="form-row">
             <input type="text" id="task-name" class="lumi-input-custom" placeholder={copy.taskNamePlaceholder} />
-            <input type="number" id="task-points" class="lumi-input-custom" placeholder={copy.taskPointsPlaceholder} min="1" />
+            <input type="number" id="task-points" class="lumi-input-custom" placeholder={copy.taskPointsPlaceholder} min="1" max="999" />
             <button class="action-btn primary" type="button" id="add-task">{copy.addTask}</button>
           </div>
           <div class="catalog-list" id="task-catalog"></div>

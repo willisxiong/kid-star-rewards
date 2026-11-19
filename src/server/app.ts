@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { errorText, localeFromCookieHeader, text, type Locale } from '../lib/i18n';
-import { normalizeEmail, normalizeFamilyCode, parseName, parsePoints } from '../lib/validate';
+import { normalizeEmail, normalizeFamilyCode, parseDailyLimit, parseName, parsePoints, parseTaskKind } from '../lib/validate';
 import type { AppEnv } from './context';
 import {
   addReward,
   addTask,
+  awardStarburst,
   checkIn,
   disableReward,
   disableTask,
@@ -273,9 +274,14 @@ app.post('/api/parent/tasks', async (c) => {
   const body = await readBody(c);
   const name = parseName(body.name);
   const points = parsePoints(body.points);
-  if (!name || points == null) throw new HttpError(400, 'taskInvalid');
+  const kind = parseTaskKind(body.kind);
+  if (!name || points == null || !kind) throw new HttpError(400, 'taskInvalid');
+  const dailyLimit = readDailyLimit(body.dailyLimit, kind === 'daily');
   const locale = requestLocale(c);
-  await addTask(c.env.DB, session.family_id, name, points, locale);
+  await addTask(c.env.DB, session.family_id, name, points, locale, {
+    kind,
+    ...(dailyLimit == null ? {} : { dailyLimit }),
+  });
   return c.json({ ok: true, toast: text(locale).taskAdded, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
 });
 
@@ -285,9 +291,18 @@ app.patch('/api/parent/tasks/:id', async (c) => {
   const name = parseName(body.name);
   const points = parsePoints(body.points);
   if (!name || points == null) throw new HttpError(400, 'taskInvalid');
+  const dailyLimit = readDailyLimit(body.dailyLimit, false);
   const locale = requestLocale(c);
-  await updateTask(c.env.DB, session.family_id, c.req.param('id'), name, points, locale);
+  await updateTask(c.env.DB, session.family_id, c.req.param('id'), name, points, locale, dailyLimit);
   return c.json({ ok: true, toast: text(locale).taskUpdated, state: await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!) });
+});
+
+app.post('/api/parent/tasks/:id/award', async (c) => {
+  const session = await requireParentReady(c);
+  const locale = requestLocale(c);
+  const result = await awardStarburst(c.env.DB, session.family_id, session.parent_id!, c.req.param('id'), locale);
+  const state = await parentState(c.env.DB, session.family_id, session.parent_email ?? '', session.parent_id!);
+  return c.json({ ok: true, toast: text(locale).starburstAwarded(result.name, result.points), state });
 });
 
 app.delete('/api/parent/tasks/:id', async (c) => {
@@ -345,6 +360,17 @@ export function publicOrigin(env: Env, requestUrl: string): string {
   const url = new URL(requestUrl);
   if (url.protocol === 'http:' && url.hostname === 'localhost') return url.origin;
   return (env.APP_ORIGIN || url.origin).replace(/\/$/, '');
+}
+
+function readDailyLimit(value: unknown, defaultWhenMissing: boolean): number | null {
+  const missing = value === undefined || value === null || value === '';
+  if (missing) {
+    if (defaultWhenMissing) return 1;
+    return null;
+  }
+  const parsed = parseDailyLimit(value);
+  if (parsed == null) throw new HttpError(400, 'dailyLimitInvalid');
+  return parsed;
 }
 
 function requestLocale(c: Context<AppEnv>): Locale {

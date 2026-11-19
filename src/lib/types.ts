@@ -1,14 +1,22 @@
+export type TaskKind = 'daily' | 'starburst';
+
 export type KidTask = {
   id: string;
   name: string;
   points: number;
+  kind: TaskKind;
   done: boolean;
+  count: number;
+  limit: number;
 };
 
 export type CatalogTask = {
   id: string;
   name: string;
   points: number;
+  kind: TaskKind;
+  dailyLimit: number;
+  awarded: boolean;
 };
 
 export type RewardItem = {

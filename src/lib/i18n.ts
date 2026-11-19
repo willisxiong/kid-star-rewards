@@ -58,11 +58,11 @@ function catalog(zh: boolean) {
     kidEntry: zh ? '儿童端' : 'Child',
     parentEntry: zh ? '家长端' : 'Parent',
     kidEntryNote: zh
-      ? '每日打卡加星，兑换奖励会先冻结星星，等家长确认。'
-      : 'Check in each day for stars. Redeeming a reward freezes the stars until a parent confirms.',
+      ? '每日打卡加星。星爆任务由家长发放一次。兑换奖励会先冻结星星，等家长确认。'
+      : 'Check in each day for stars. A Star Burst is awarded once by a parent. Redeeming a reward freezes the stars until a parent confirms.',
     parentEntryNote: zh
-      ? '使用 Passkey 或登录链接。同意或拒绝兑换，管理任务和奖励。'
-      : 'Use a passkey or an email link. Approve or reject redemptions, and manage tasks and rewards.',
+      ? '使用 Passkey 或登录链接。同意或拒绝兑换，发放星爆任务，管理任务和奖励。'
+      : 'Use a passkey or an email link. Approve or reject redemptions, award Star Bursts, and manage tasks and rewards.',
     kidTitle: zh ? '/kid · 儿童星级奖励系统' : '/kid · Kid Star Rewards',
     parentTitle: zh ? '/parent · 儿童星级奖励系统' : '/parent · Kid Star Rewards',
     gateNote: zh
@@ -121,9 +121,29 @@ function catalog(zh: boolean) {
     approve: zh ? '同意' : 'Approve',
     reject: zh ? '拒绝' : 'Reject',
     addTaskSection: zh ? '自定义新增任务' : 'Add a task',
+    taskFormNote: zh
+      ? '每日打卡可以设置每天的次数（1–9）。星爆任务由家长确认发放，每项只能一次。'
+      : 'A daily check-in can happen up to its daily count (1–9). A Star Burst is awarded once, by a parent.',
+    taskKindLabel: zh ? '任务类型' : 'Task type',
+    taskKindDaily: zh ? '每日打卡' : 'Daily check-in',
+    taskKindBurst: zh ? '星爆任务' : 'Star Burst',
+    dailyLimitLabel: zh ? '每日可打卡次数' : 'Daily check-in count',
     taskNamePlaceholder: zh ? '任务名称 (例: 帮忙洗碗)' : 'Task name (e.g. wash the dishes)',
+    burstNamePlaceholder: zh ? '任务名称 (例: 数学竞赛一等奖)' : 'Task name (e.g. first prize in a math contest)',
     taskPointsPlaceholder: zh ? '奖励星数' : 'Stars to award',
     addTask: zh ? '添加任务' : 'Add task',
+    perDay: (count: number) => (zh ? `每日 ${count} 次` : count === 1 ? '1 time a day' : `${count} times a day`),
+    once: zh ? '仅一次' : 'Once',
+    award: zh ? '发放' : 'Award',
+    awarded: zh ? '已发放' : 'Awarded',
+    awardConfirm: (name: string, points: number) =>
+      zh
+        ? `发放星爆任务「${name}」的 ${points} 星？每项只能发放一次。`
+        : `Award ${points} ${points === 1 ? 'star' : 'stars'} for Star Burst “${name}”? This can only happen once.`,
+    progress: (count: number, limit: number) => `${count}/${limit}`,
+    starburstWaiting: zh ? '家长发放' : 'Parent awards',
+    starburstAwarded: (name: string, points: number) =>
+      zh ? `已发放「${name}」(+${points} 星)` : `Awarded “${name}” (+${points} ${points === 1 ? 'star' : 'stars'}).`,
     addRewardSection: zh ? '自定义新增奖励' : 'Add a reward',
     rewardNamePlaceholder: zh ? '奖励名称 (例: 去游乐园)' : 'Reward name (e.g. a trip to the park)',
     rewardCostPlaceholder: zh ? '所需星数' : 'Stars required',
@@ -151,6 +171,7 @@ function catalog(zh: boolean) {
     passkeySyncedName: zh ? '已同步的 Passkey' : 'Synced passkey',
     passkeyDeviceName: 'Passkey',
     taskInvalid: zh ? '请输入有效的任务名称与奖励星数' : 'Enter a valid task name and a star amount.',
+    dailyLimitInvalid: zh ? '每日可打卡次数要在 1 到 9 之间。' : 'Daily check-in count must be from 1 to 9.',
     rewardInvalid: zh ? '请输入有效的奖励名称与所需星数' : 'Enter a valid reward name and a star cost.',
     taskAdded: zh ? '任务添加成功' : 'Task added.',
     rewardAdded: zh ? '奖励添加成功' : 'Reward added.',
@@ -159,7 +180,9 @@ function catalog(zh: boolean) {
     taskDisabled: zh ? '任务已停用' : 'Task turned off.',
     rewardDisabled: zh ? '奖励已停用' : 'Reward turned off.',
     checkin: (points: number) => (zh ? `打卡成功！获得 +${points} 颗星 🌟` : `Checked in. You earned +${points} stars.`),
-    alreadyChecked: zh ? '今天已经打过这个任务啦' : 'You already checked in for this task today.',
+    alreadyChecked: zh ? '今天这个任务的打卡次数已经用完了' : 'No check-ins left for this task today.',
+    starburstParentOnly: zh ? '星爆任务需要家长确认后发放。' : 'A parent has to award this Star Burst.',
+    alreadyAwarded: zh ? '这个星爆任务已经发放过了。' : 'This Star Burst was already awarded.',
     redeemPending: zh ? '已提交兑换申请，等待家长确认' : 'Redemption sent. Waiting for a parent to confirm.',
     needStars: zh ? '星星还不够，先去完成任务吧' : 'Not enough stars yet. Finish a task first.',
     approved: (name: string) => (zh ? `已同意兑换「${name}」` : `Approved “${name}”.`),
@@ -215,11 +238,22 @@ function catalog(zh: boolean) {
       zh ? `家长拒绝兑换「${name}」，返还 ${cost} 星` : `A parent rejected “${name}”. ${stars(cost)} were returned.`,
     logApprove: (name: string, cost: number) =>
       zh ? `家长同意兑换「${name}」(-${cost} 星)` : `A parent approved “${name}” (−${cost} stars).`,
-    logTaskAdded: (name: string, points: number) =>
-      zh ? `新增每日任务「${name}」(+${points} 星)` : `Added daily task “${name}” (+${points} stars).`,
-    logTaskUpdated: (name: string, points: number) =>
-      zh ? `更新每日任务「${name}」(+${points} 星)` : `Updated daily task “${name}” (+${points} stars).`,
+    logTaskAdded: (name: string, points: number, limit: number) =>
+      zh
+        ? `新增每日任务「${name}」(+${points} 星，每日 ${limit} 次)`
+        : `Added daily task “${name}” (+${points} stars, ${limit} a day).`,
+    logTaskUpdated: (name: string, points: number, limit: number) =>
+      zh
+        ? `更新每日任务「${name}」(+${points} 星，每日 ${limit} 次)`
+        : `Updated daily task “${name}” (+${points} stars, ${limit} a day).`,
     logTaskDisabled: (name: string) => (zh ? `停用每日任务「${name}」` : `Turned off daily task “${name}”.`),
+    logStarburstAdded: (name: string, points: number) =>
+      zh ? `新增星爆任务「${name}」(+${points} 星)` : `Added Star Burst “${name}” (+${points} stars).`,
+    logStarburstUpdated: (name: string, points: number) =>
+      zh ? `更新星爆任务「${name}」(+${points} 星)` : `Updated Star Burst “${name}” (+${points} stars).`,
+    logStarburstDisabled: (name: string) => (zh ? `停用星爆任务「${name}」` : `Turned off Star Burst “${name}”.`),
+    logStarburstAwarded: (name: string, points: number) =>
+      zh ? `确认星爆任务「${name}」，发放 +${points} 星` : `Awarded Star Burst “${name}” (+${points} stars).`,
     logRewardAdded: (name: string, cost: number) =>
       zh ? `新增兑换奖励「${name}」(${cost} 星)` : `Added reward “${name}” (${stars(cost)}).`,
     logRewardUpdated: (name: string, cost: number) =>

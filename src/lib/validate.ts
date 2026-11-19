@@ -5,6 +5,18 @@ export function parseName(value: unknown, max = 40): string | null {
   return name;
 }
 
+export function parseTaskKind(value: unknown): 'daily' | 'starburst' | null {
+  if (value === undefined || value === null || value === '') return 'daily';
+  if (value === 'daily' || value === 'starburst') return value;
+  return null;
+}
+
+/** Integer 1–9. A missing value is null so the caller can apply its own default. */
+export function parseDailyLimit(value: unknown): number | null {
+  if (value === undefined || value === null || value === '') return null;
+  return parsePoints(value, 9);
+}
+
 export function parsePoints(value: unknown, max = 999): number | null {
   const numeric = typeof value === 'number' ? value : typeof value === 'string' && /^\d+$/.test(value.trim()) ? Number(value.trim()) : Number.NaN;
   if (!Number.isInteger(numeric) || numeric < 1 || numeric > max) return null;

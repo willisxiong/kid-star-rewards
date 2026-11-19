@@ -22,7 +22,7 @@ Created by `migrations/0002_seed_demo.sql`. Caps are enforced in the schema: at 
 
 Both parents can approve or reject redemptions and manage tasks and rewards. New tasks and rewards show up on `/kid` (the page polls every few seconds).
 
-Daily check-in is once per task per `local_date` in the family timezone. A second tap the same day does not add stars.
+A daily task has a check-in count from 1 to 9 (default 1). Each check-in adds that task's stars until the count is full for the family's timezone calendar day. There is no undo. Lowering the count does not take stars back. A Star Burst is awarded once by a parent; the child can see it and cannot mark it complete. After it is awarded it leaves the child's list. Existing tasks migrate to a daily count of 1, including the demo task 自己吃饭.
 
 ## Stack
 
@@ -148,6 +148,6 @@ Then add tasks and rewards from `/parent`, or with SQL.
 ## Behavior notes
 
 - Redeem subtracts stars immediately and creates a pending redemption. Approve keeps them spent. Reject adds them back.
-- Check-ins use the family timezone, default `Asia/Hong_Kong`.
+- Check-ins use the family timezone, default `Asia/Hong_Kong`. The daily count resets on that calendar day. Star Burst awards do not reset.
 - Kid and parent poll `GET /api/kid/state` and `GET /api/parent/state`.
 - The empty reward form says `Enter a valid reward name and a star cost.` in English and `请输入有效的奖励名称与所需星数` in Chinese. The task form keeps the task wording in that language.

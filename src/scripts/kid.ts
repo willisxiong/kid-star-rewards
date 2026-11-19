@@ -1,5 +1,5 @@
+import { currentLocale, text } from '../lib/i18n';
 import type { KidState, KidTask, RewardItem } from '../lib/types';
-import { copy } from '../lib/validate';
 import { api, icon, showToast } from './api';
 
 const POLL_MS = 4000;
@@ -16,10 +16,11 @@ export function bootKid(initial: KidState | null): void {
   let epoch = 0;
   let fingerprint = '';
 
+  const ui = () => text(currentLocale());
   const params = new URLSearchParams(location.search);
   const bind = params.get('bind');
-  if (bind === 'invalid') showToast(copy.codeInvalid);
-  else if (bind === 'nochild') showToast('这个家庭还没有儿童账号');
+  if (bind === 'invalid') showToast(ui().codeInvalid);
+  else if (bind === 'nochild') showToast(ui().noChild);
   if (bind) {
     params.delete('bind');
     const next = params.toString();
@@ -75,7 +76,7 @@ export function bootKid(initial: KidState | null): void {
     if (!grid) return;
     grid.replaceChildren();
     if (!state.tasks.length) {
-      grid.append(empty('今天还没有任务'));
+      grid.append(empty(ui().noTasks));
       return;
     }
     for (const task of state.tasks) grid.append(taskCard(task, state));
@@ -94,7 +95,7 @@ export function bootKid(initial: KidState | null): void {
     const star = icon('star', true);
     star.style.fontSize = '14px';
     star.style.color = '#f59e0b';
-    points.append(star, document.createTextNode(` +${task.points} 星`));
+    points.append(star, document.createTextNode(` ${ui().plusStars(task.points)}`));
     info.append(name, points);
     const button = document.createElement('button');
     button.type = 'button';
@@ -103,10 +104,10 @@ export function bootKid(initial: KidState | null): void {
       button.disabled = true;
       const mark = icon('check_circle');
       mark.style.fontSize = '16px';
-      button.append(mark, document.createTextNode(' 已完成'));
+      button.append(mark, document.createTextNode(` ${ui().done}`));
     } else {
       button.className = 'action-btn primary';
-      button.textContent = '打卡';
+      button.textContent = ui().checkIn;
       button.addEventListener('click', () => void onCheckin(task.id, state));
     }
     card.append(info, button);
@@ -118,7 +119,7 @@ export function bootKid(initial: KidState | null): void {
     if (!grid) return;
     grid.replaceChildren();
     if (!state.rewards.length) {
-      grid.append(empty('还没有奖励'));
+      grid.append(empty(ui().noRewards));
       return;
     }
     for (const reward of state.rewards) grid.append(rewardCard(reward, state));
@@ -137,7 +138,7 @@ export function bootKid(initial: KidState | null): void {
     name.textContent = reward.name;
     const points = document.createElement('span');
     points.className = 'item-points';
-    points.textContent = unlocked ? `需要 ${reward.cost} 星` : `需要 ${reward.cost} 星 (还差 ${need} 星)`;
+    points.textContent = ui().rewardNeed(reward.cost, need, unlocked);
     const bar = document.createElement('div');
     bar.className = 'progress-bar-bg';
     const fill = document.createElement('div');
@@ -149,12 +150,12 @@ export function bootKid(initial: KidState | null): void {
     button.type = 'button';
     if (unlocked) {
       button.className = 'action-btn success';
-      button.textContent = '兑换';
+      button.textContent = ui().redeem;
       button.addEventListener('click', () => void onRedeem(reward.id));
     } else {
       button.className = 'action-btn disabled';
       button.disabled = true;
-      button.textContent = '未解锁';
+      button.textContent = ui().locked;
     }
     card.append(info, button);
     return card;
@@ -189,7 +190,7 @@ export function bootKid(initial: KidState | null): void {
   document.getElementById('logout')?.addEventListener('click', async () => {
     epoch += 1;
     await api('/api/auth/logout', { method: 'POST', body: JSON.stringify({ role: 'child' }) });
-    showToast('已退出');
+    showToast(ui().loggedOut);
     showGate();
   });
 

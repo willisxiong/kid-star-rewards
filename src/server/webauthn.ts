@@ -7,6 +7,7 @@ import {
   type RegistrationResponseJSON,
 } from '@simplewebauthn/server';
 import { decodeClientDataJSON, isoBase64URL, isoUint8Array } from '@simplewebauthn/server/helpers';
+import { text, type Locale } from '../lib/i18n';
 import type { D1Database } from './d1';
 import { addSeconds, HttpError, nowIso } from './http';
 
@@ -25,22 +26,22 @@ export function webauthnRelyingParty(env: Env, requestUrl: string): RelyingParty
     return { rpID: 'localhost', origin: url.origin, rpName: RP_NAME };
   }
   if (url.hostname === '127.0.0.1' || url.hostname === '::1' || url.hostname === '[::1]') {
-    throw new HttpError(400, '本地开发请使用 http://localhost:4321');
+    throw new HttpError(400, 'passkeyLocalhost');
   }
   const rpID = (env.WEBAUTHN_RP_ID ?? '').trim().toLowerCase();
   const configured = (env.WEBAUTHN_ORIGIN || env.APP_ORIGIN || '').trim();
-  if (!rpID || !configured) throw new HttpError(500, '服务器未配置 Passkey');
+  if (!rpID || !configured) throw new HttpError(500, 'passkeyUnconfigured');
   let originUrl: URL;
   try {
     originUrl = new URL(configured);
   } catch {
-    throw new HttpError(500, 'Passkey 来源配置无效');
+    throw new HttpError(500, 'passkeyOriginInvalid');
   }
   const originHasPath = originUrl.pathname !== '/' || originUrl.search || originUrl.hash || originUrl.username;
   if (originUrl.protocol !== 'https:' || originHasPath || originUrl.hostname.toLowerCase() !== rpID) {
-    throw new HttpError(500, 'Passkey 的域名配置不一致');
+    throw new HttpError(500, 'passkeyOriginMismatch');
   }
-  if (!isAcceptableRpId(rpID)) throw new HttpError(500, 'Passkey 不能使用 workers.dev 公共后缀');
+  if (!isAcceptableRpId(rpID)) throw new HttpError(500, 'passkeyPublicSuffix');
   return { rpID, origin: originUrl.origin, rpName: RP_NAME };
 }
 
@@ -79,7 +80,7 @@ export async function assertRateLimit(
     .prepare('SELECT COUNT(*) AS n FROM webauthn_attempts WHERE scope = ? AND subject = ? AND created_at >= ?')
     .bind(scope, subject.slice(0, 120), since)
     .first<{ n: number }>();
-  if (Number(row?.n ?? 0) > limit) throw new HttpError(429, '尝试次数过多，请稍后再试', 'rate_limited');
+  if (Number(row?.n ?? 0) > limit) throw new HttpError(429, 'rateLimited', 'rate_limited');
 }
 
 export async function saveChallenge(
@@ -127,9 +128,9 @@ export async function consumeChallenge(
 }
 
 export function challengeError(result: 'replay' | 'expired' | 'mismatch'): HttpError {
-  if (result === 'replay') return new HttpError(400, '挑战已使用');
-  if (result === 'expired') return new HttpError(400, '挑战已过期');
-  return new HttpError(400, '挑战无效');
+  if (result === 'replay') return new HttpError(400, 'challengeUsed');
+  if (result === 'expired') return new HttpError(400, 'challengeExpired');
+  return new HttpError(400, 'challengeInvalid');
 }
 
 export function clientIp(header: string | undefined): string {
@@ -192,6 +193,7 @@ export async function verifyRegistration(
   rp: RelyingParty,
   parentId: string,
   response: RegistrationResponseJSON,
+  locale: Locale = 'en',
 ): Promise<{ id: string; passkeyCount: number }> {
   const challenge = readChallenge(response.response?.clientDataJSON);
   const consumed = await consumeChallenge(db, challenge, 'registration', parentId);
@@ -207,9 +209,9 @@ export async function verifyRegistration(
     });
   } catch (error) {
     console.error('[kid-star] passkey register verify', error);
-    throw new HttpError(400, 'Passkey 校验失败');
+    throw new HttpError(400, 'passkeyVerifyFailed');
   }
-  if (!verified.verified) throw new HttpError(400, 'Passkey 校验失败');
+  if (!verified.verified) throw new HttpError(400, 'passkeyVerifyFailed');
   const info = verified.registrationInfo;
   const backupEligible = info.credentialDeviceType === 'multiDevice';
   const now = nowIso();
@@ -233,14 +235,14 @@ export async function verifyRegistration(
         backupEligible ? 1 : 0,
         info.credentialDeviceType,
         info.aaguid,
-        backupEligible ? '已同步的 Passkey' : 'Passkey',
+        backupEligible ? text(locale).passkeySyncedName : text(locale).passkeyDeviceName,
         now,
         now,
       )
       .run();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes('UNIQUE')) throw new HttpError(409, '这把钥匙已经登记过了');
+    if (message.includes('UNIQUE')) throw new HttpError(409, 'passkeyDuplicate');
     throw error;
   }
   return { id, passkeyCount: await passkeyCount(db, parentId) };
@@ -262,7 +264,7 @@ export async function verifyAuthentication(
     )
     .bind(credentialId)
     .first<StoredPasskey>();
-  if (!row) throw new HttpError(401, '未能使用 Passkey，请改用登录链接。');
+  if (!row) throw new HttpError(401, 'passkeyFailed');
   let verified;
   try {
     verified = await verifyAuthenticationResponse({
@@ -280,9 +282,9 @@ export async function verifyAuthentication(
     });
   } catch (error) {
     console.error('[kid-star] passkey authenticate verify', error);
-    throw new HttpError(401, '未能使用 Passkey，请改用登录链接。');
+    throw new HttpError(401, 'passkeyFailed');
   }
-  if (!verified.verified) throw new HttpError(401, '未能使用 Passkey，请改用登录链接。');
+  if (!verified.verified) throw new HttpError(401, 'passkeyFailed');
   const handle = response.response.userHandle;
   let handleId = '';
   try {
@@ -292,7 +294,7 @@ export async function verifyAuthentication(
   }
   if (!handleId || handleId !== row.parent_id) {
     console.log(JSON.stringify({ event: 'passkey_user_handle_mismatch', parentId: row.parent_id }));
-    throw new HttpError(401, '未能使用 Passkey，请改用登录链接。');
+    throw new HttpError(401, 'passkeyFailed');
   }
   const reportedEligible = verified.authenticationInfo.credentialDeviceType === 'multiDevice';
   const backupEligible = Number(row.backup_eligible) === 1 || reportedEligible;
@@ -311,7 +313,7 @@ export async function verifyAuthentication(
         next: verified.authenticationInfo.newCounter,
       }),
     );
-    throw new HttpError(401, '未能使用 Passkey，请改用登录链接。');
+    throw new HttpError(401, 'passkeyFailed');
   }
   const now = nowIso();
   await db
@@ -333,7 +335,7 @@ export async function verifyAuthentication(
     .prepare('SELECT id, family_id FROM parents WHERE id = ?')
     .bind(row.parent_id)
     .first<{ id: string; family_id: string }>();
-  if (!parent) throw new HttpError(401, '未能使用 Passkey，请改用登录链接。');
+  if (!parent) throw new HttpError(401, 'passkeyFailed');
   return { parentId: parent.id, familyId: parent.family_id };
 }
 
@@ -379,12 +381,12 @@ export async function renamePasskey(db: D1Database, parentId: string, id: string
     .prepare('UPDATE parent_passkeys SET friendly_name = ? WHERE id = ? AND parent_id = ?')
     .bind(name, id, parentId)
     .run();
-  if (Number(updated.meta.changes ?? 0) !== 1) throw new HttpError(404, '找不到这把 Passkey');
+  if (Number(updated.meta.changes ?? 0) !== 1) throw new HttpError(404, 'passkeyNotFound');
 }
 
 export async function deletePasskey(db: D1Database, parentId: string, id: string): Promise<number> {
   const updated = await db.prepare('DELETE FROM parent_passkeys WHERE id = ? AND parent_id = ?').bind(id, parentId).run();
-  if (Number(updated.meta.changes ?? 0) !== 1) throw new HttpError(404, '找不到这把 Passkey');
+  if (Number(updated.meta.changes ?? 0) !== 1) throw new HttpError(404, 'passkeyNotFound');
   return passkeyCount(db, parentId);
 }
 
@@ -394,13 +396,13 @@ export async function passkeyCount(db: D1Database, parentId: string): Promise<nu
 }
 
 function readChallenge(clientDataJSON: unknown): string {
-  if (typeof clientDataJSON !== 'string' || !clientDataJSON) throw new HttpError(400, 'Passkey 响应无效');
+  if (typeof clientDataJSON !== 'string' || !clientDataJSON) throw new HttpError(400, 'passkeyResponseInvalid');
   try {
     const data = decodeClientDataJSON(clientDataJSON);
     if (!data.challenge) throw new Error('missing challenge');
     return data.challenge;
   } catch {
-    throw new HttpError(400, 'Passkey 响应无效');
+    throw new HttpError(400, 'passkeyResponseInvalid');
   }
 }
 
@@ -419,11 +421,11 @@ function parseTransports(value: string | null): string[] | undefined {
 export function asRegistrationResponse(body: Record<string, unknown>): RegistrationResponseJSON {
   const response = body.response;
   if (typeof body.id !== 'string' || !response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new HttpError(400, 'Passkey 响应无效');
+    throw new HttpError(400, 'passkeyResponseInvalid');
   }
   const attestation = response as Record<string, unknown>;
   if (typeof attestation.clientDataJSON !== 'string' || typeof attestation.attestationObject !== 'string') {
-    throw new HttpError(400, 'Passkey 响应无效');
+    throw new HttpError(400, 'passkeyResponseInvalid');
   }
   return body as unknown as RegistrationResponseJSON;
 }
@@ -431,7 +433,7 @@ export function asRegistrationResponse(body: Record<string, unknown>): Registrat
 export function asAuthenticationResponse(body: Record<string, unknown>): AuthenticationResponseJSON {
   const response = body.response;
   if (typeof body.id !== 'string' || !response || typeof response !== 'object' || Array.isArray(response)) {
-    throw new HttpError(400, 'Passkey 响应无效');
+    throw new HttpError(400, 'passkeyResponseInvalid');
   }
   const assertion = response as Record<string, unknown>;
   if (
@@ -439,7 +441,7 @@ export function asAuthenticationResponse(body: Record<string, unknown>): Authent
     typeof assertion.authenticatorData !== 'string' ||
     typeof assertion.signature !== 'string'
   ) {
-    throw new HttpError(400, 'Passkey 响应无效');
+    throw new HttpError(400, 'passkeyResponseInvalid');
   }
   return body as unknown as AuthenticationResponseJSON;
 }

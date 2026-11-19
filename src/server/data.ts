@@ -1,3 +1,4 @@
+import { text, type Locale } from '../lib/i18n';
 import { isTimeZone, localDateISO, localTimeHM } from '../lib/time';
 import type { KidState, ParentState } from '../lib/types';
 import type { D1Database, D1Result } from './d1';
@@ -48,14 +49,14 @@ async function familyOf(db: D1Database, familyId: string): Promise<FamilyRow> {
     .prepare('SELECT id, name, timezone, family_code, star_balance FROM families WHERE id = ?')
     .bind(familyId)
     .first<FamilyRow>();
-  if (!family) throw new HttpError(404, '家庭不存在');
+  if (!family) throw new HttpError(404, 'familyMissing');
   return family;
 }
 
 export async function kidState(db: D1Database, familyId: string, childId: string): Promise<KidState> {
   const family = await familyOf(db, familyId);
   const child = await db.prepare('SELECT display_name FROM children WHERE id = ? AND family_id = ?').bind(childId, familyId).first<{ display_name: string }>();
-  if (!child) throw new HttpError(401, '请先绑定设备');
+  if (!child) throw new HttpError(401, 'bindRequired');
   const localDate = localDateISO(family.timezone);
   const tasks = await db
     .prepare(
@@ -145,24 +146,30 @@ export async function writeLog(db: D1Database, familyId: string, message: string
     .run();
 }
 
-export async function setTimezone(db: D1Database, familyId: string, timezone: string): Promise<void> {
-  if (!isTimeZone(timezone) || timezone.length > 64) throw new HttpError(400, '时区无效');
+export async function setTimezone(db: D1Database, familyId: string, timezone: string, locale: Locale): Promise<void> {
+  if (!isTimeZone(timezone) || timezone.length > 64) throw new HttpError(400, 'timezoneInvalid');
   await db.prepare('UPDATE families SET timezone = ? WHERE id = ?').bind(timezone, familyId).run();
-  await writeLog(db, familyId, `家庭时区更新为 ${timezone}`);
+  await writeLog(db, familyId, text(locale).logTimezone(timezone));
 }
 
 function changes(result: D1Result): number {
   return Number(result.meta.changes ?? 0);
 }
 
-export async function checkIn(db: D1Database, familyId: string, childId: string, taskId: string): Promise<{ already: boolean; points: number }> {
+export async function checkIn(
+  db: D1Database,
+  familyId: string,
+  childId: string,
+  taskId: string,
+  locale: Locale,
+): Promise<{ already: boolean; points: number }> {
   const family = await familyOf(db, familyId);
   const localDate = localDateISO(family.timezone);
   const task = await db
     .prepare('SELECT id, name, points FROM tasks WHERE id = ? AND family_id = ? AND active = 1')
     .bind(taskId, familyId)
     .first<{ id: string; name: string; points: number }>();
-  if (!task) throw new HttpError(404, '任务不存在');
+  if (!task) throw new HttpError(404, 'taskMissing');
   const existing = await db
     .prepare('SELECT id FROM checkins WHERE task_id = ? AND local_date = ?')
     .bind(task.id, localDate)
@@ -181,7 +188,7 @@ export async function checkIn(db: D1Database, familyId: string, childId: string,
       db.prepare('UPDATE families SET star_balance = star_balance + ? WHERE id = ?').bind(task.points, familyId),
       db
         .prepare('INSERT INTO activity_log (id, family_id, message, created_at) VALUES (?, ?, ?, ?)')
-        .bind(crypto.randomUUID(), familyId, `完成任务「${task.name}」，获得 +${task.points} 星`, createdAt),
+        .bind(crypto.randomUUID(), familyId, text(locale).logCheckin(task.name, task.points), createdAt),
     ]);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -191,17 +198,17 @@ export async function checkIn(db: D1Database, familyId: string, childId: string,
   return { already: false, points: task.points };
 }
 
-export async function redeem(db: D1Database, familyId: string, rewardId: string): Promise<{ name: string; cost: number }> {
+export async function redeem(db: D1Database, familyId: string, rewardId: string, locale: Locale): Promise<{ name: string; cost: number }> {
   const reward = await db
     .prepare('SELECT id, name, cost FROM rewards WHERE id = ? AND family_id = ? AND active = 1')
     .bind(rewardId, familyId)
     .first<RewardRow & { id: string }>();
-  if (!reward) throw new HttpError(404, '奖励不存在');
+  if (!reward) throw new HttpError(404, 'rewardMissing');
   const taken = await db
     .prepare('UPDATE families SET star_balance = star_balance - ? WHERE id = ? AND star_balance >= ?')
     .bind(reward.cost, familyId, reward.cost)
     .run();
-  if (!changes(taken)) throw new HttpError(400, '星星还不够，先去完成任务吧');
+  if (!changes(taken)) throw new HttpError(400, 'needStars');
 
   const createdAt = nowIso();
   try {
@@ -214,7 +221,7 @@ export async function redeem(db: D1Database, familyId: string, rewardId: string)
         .bind(crypto.randomUUID(), familyId, reward.id, reward.name, reward.cost, createdAt),
       db
         .prepare('INSERT INTO activity_log (id, family_id, message, created_at) VALUES (?, ?, ?, ?)')
-        .bind(crypto.randomUUID(), familyId, `发起兑换「${reward.name}」，冻结 ${reward.cost} 星，等待家长审核`, createdAt),
+        .bind(crypto.randomUUID(), familyId, text(locale).logRedeem(reward.name, reward.cost), createdAt),
     ]);
   } catch (error) {
     await db.prepare('UPDATE families SET star_balance = star_balance + ? WHERE id = ?').bind(reward.cost, familyId).run();
@@ -229,12 +236,13 @@ export async function resolveRedemption(
   parentId: string,
   redemptionId: string,
   decision: 'approved' | 'rejected',
+  locale: Locale,
 ): Promise<{ name: string; cost: number }> {
   const row = await db
     .prepare('SELECT id, reward_name, cost, status FROM redemptions WHERE id = ? AND family_id = ?')
     .bind(redemptionId, familyId)
     .first<{ id: string; reward_name: string; cost: number; status: string }>();
-  if (!row || row.status !== 'pending') throw new HttpError(409, '这条申请已经处理过了');
+  if (!row || row.status !== 'pending') throw new HttpError(409, 'alreadyResolved');
   const resolvedAt = nowIso();
   const updated = await db
     .prepare(
@@ -244,12 +252,12 @@ export async function resolveRedemption(
     )
     .bind(decision, resolvedAt, parentId, row.id)
     .run();
-  if (!changes(updated)) throw new HttpError(409, '这条申请已经处理过了');
+  if (!changes(updated)) throw new HttpError(409, 'alreadyResolved');
   if (decision === 'rejected') {
     await db.prepare('UPDATE families SET star_balance = star_balance + ? WHERE id = ?').bind(row.cost, familyId).run();
-    await writeLog(db, familyId, `家长拒绝兑换「${row.reward_name}」，返还 ${row.cost} 星`, resolvedAt);
+    await writeLog(db, familyId, text(locale).logReject(row.reward_name, row.cost), resolvedAt);
   } else {
-    await writeLog(db, familyId, `家长同意兑换「${row.reward_name}」(-${row.cost} 星)`, resolvedAt);
+    await writeLog(db, familyId, text(locale).logApprove(row.reward_name, row.cost), resolvedAt);
   }
   return { name: row.reward_name, cost: row.cost };
 }
@@ -259,60 +267,74 @@ async function nextSort(db: D1Database, table: 'tasks' | 'rewards', familyId: st
   return Number(row?.n ?? 0) + 1;
 }
 
-export async function addTask(db: D1Database, familyId: string, name: string, points: number): Promise<void> {
+export async function addTask(db: D1Database, familyId: string, name: string, points: number, locale: Locale): Promise<void> {
   const createdAt = nowIso();
   await db
     .prepare('INSERT INTO tasks (id, family_id, name, points, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)')
     .bind(crypto.randomUUID(), familyId, name, points, await nextSort(db, 'tasks', familyId), createdAt)
     .run();
-  await writeLog(db, familyId, `新增每日任务「${name}」(+${points} 星)`, createdAt);
+  await writeLog(db, familyId, text(locale).logTaskAdded(name, points), createdAt);
 }
 
-export async function updateTask(db: D1Database, familyId: string, taskId: string, name: string, points: number): Promise<void> {
+export async function updateTask(
+  db: D1Database,
+  familyId: string,
+  taskId: string,
+  name: string,
+  points: number,
+  locale: Locale,
+): Promise<void> {
   const updated = await db
     .prepare('UPDATE tasks SET name = ?, points = ? WHERE id = ? AND family_id = ? AND active = 1')
     .bind(name, points, taskId, familyId)
     .run();
-  if (!changes(updated)) throw new HttpError(404, '任务不存在');
-  await writeLog(db, familyId, `更新每日任务「${name}」(+${points} 星)`);
+  if (!changes(updated)) throw new HttpError(404, 'taskMissing');
+  await writeLog(db, familyId, text(locale).logTaskUpdated(name, points));
 }
 
-export async function disableTask(db: D1Database, familyId: string, taskId: string): Promise<string> {
+export async function disableTask(db: D1Database, familyId: string, taskId: string, locale: Locale): Promise<string> {
   const task = await db
     .prepare('SELECT name FROM tasks WHERE id = ? AND family_id = ? AND active = 1')
     .bind(taskId, familyId)
     .first<{ name: string }>();
-  if (!task) throw new HttpError(404, '任务不存在');
+  if (!task) throw new HttpError(404, 'taskMissing');
   await db.prepare('UPDATE tasks SET active = 0 WHERE id = ?').bind(taskId).run();
-  await writeLog(db, familyId, `停用每日任务「${task.name}」`);
+  await writeLog(db, familyId, text(locale).logTaskDisabled(task.name));
   return task.name;
 }
 
-export async function addReward(db: D1Database, familyId: string, name: string, cost: number): Promise<void> {
+export async function addReward(db: D1Database, familyId: string, name: string, cost: number, locale: Locale): Promise<void> {
   const createdAt = nowIso();
   await db
     .prepare('INSERT INTO rewards (id, family_id, name, cost, active, sort_order, created_at) VALUES (?, ?, ?, ?, 1, ?, ?)')
     .bind(crypto.randomUUID(), familyId, name, cost, await nextSort(db, 'rewards', familyId), createdAt)
     .run();
-  await writeLog(db, familyId, `新增兑换奖励「${name}」(${cost} 星)`, createdAt);
+  await writeLog(db, familyId, text(locale).logRewardAdded(name, cost), createdAt);
 }
 
-export async function updateReward(db: D1Database, familyId: string, rewardId: string, name: string, cost: number): Promise<void> {
+export async function updateReward(
+  db: D1Database,
+  familyId: string,
+  rewardId: string,
+  name: string,
+  cost: number,
+  locale: Locale,
+): Promise<void> {
   const updated = await db
     .prepare('UPDATE rewards SET name = ?, cost = ? WHERE id = ? AND family_id = ? AND active = 1')
     .bind(name, cost, rewardId, familyId)
     .run();
-  if (!changes(updated)) throw new HttpError(404, '奖励不存在');
-  await writeLog(db, familyId, `更新兑换奖励「${name}」(${cost} 星)`);
+  if (!changes(updated)) throw new HttpError(404, 'rewardMissing');
+  await writeLog(db, familyId, text(locale).logRewardUpdated(name, cost));
 }
 
-export async function disableReward(db: D1Database, familyId: string, rewardId: string): Promise<string> {
+export async function disableReward(db: D1Database, familyId: string, rewardId: string, locale: Locale): Promise<string> {
   const reward = await db
     .prepare('SELECT name FROM rewards WHERE id = ? AND family_id = ? AND active = 1')
     .bind(rewardId, familyId)
     .first<{ name: string }>();
-  if (!reward) throw new HttpError(404, '奖励不存在');
+  if (!reward) throw new HttpError(404, 'rewardMissing');
   await db.prepare('UPDATE rewards SET active = 0 WHERE id = ?').bind(rewardId).run();
-  await writeLog(db, familyId, `停用兑换奖励「${reward.name}」`);
+  await writeLog(db, familyId, text(locale).logRewardDisabled(reward.name));
   return reward.name;
 }

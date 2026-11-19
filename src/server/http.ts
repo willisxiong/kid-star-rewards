@@ -1,11 +1,15 @@
+import type { ErrorKey } from '../lib/i18n';
+
 export class HttpError extends Error {
   readonly status: number;
   readonly code: string;
+  readonly key: ErrorKey;
 
-  constructor(status: number, message: string, code = 'error') {
-    super(message);
+  constructor(status: number, key: ErrorKey, code = 'error') {
+    super(key);
     this.status = status;
     this.code = code;
+    this.key = key;
   }
 }
 
@@ -65,7 +69,7 @@ export function randomToken(bytes = 32): string {
 export function requireSecret(env: Env): string {
   const secret = env.SESSION_SECRET ?? '';
   if (secret.length < 16) {
-    throw new HttpError(500, '服务器未配置 SESSION_SECRET');
+    throw new HttpError(500, 'secretMissing');
   }
   return secret;
 }

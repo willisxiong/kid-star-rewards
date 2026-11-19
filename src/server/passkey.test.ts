@@ -58,12 +58,13 @@ test('passkey options stay discoverable and do not trust the request host', asyn
   const registered = await app.fetch(call('/api/auth/passkey/register/options', {}, cookie), env);
   assert.equal(registered.status, 200);
   const options = (await registered.json()) as {
-    rp: { id: string };
+    rp: { id: string; name: string };
     user: { id: string };
     attestation: string;
     authenticatorSelection: { residentKey?: string; requireResidentKey?: boolean; userVerification?: string; authenticatorAttachment?: string };
   };
   assert.equal(options.rp.id, RP_ID);
+  assert.equal(options.rp.name, '儿童星级奖励系统');
   assert.equal(options.attestation, 'none');
   assert.equal(options.authenticatorSelection.residentKey, 'required');
   assert.equal(options.authenticatorSelection.requireResidentKey, true);
@@ -123,7 +124,7 @@ test('dashboard writes stay locked until a passkey exists, then a passkey login 
   };
   assert.equal(row.backup_eligible, 1);
   assert.equal(row.backed_up, 1);
-  assert.equal(row.friendly_name, '已同步的 Passkey');
+  assert.equal(row.friendly_name, 'Synced passkey');
 
   const added = await app.fetch(call('/api/parent/tasks', { name: '帮忙洗碗', points: 2 }, cookie), env);
   assert.equal(added.status, 200);
@@ -165,7 +166,7 @@ test('expired and replayed challenges fail', async () => {
   );
   assert.equal(expired.status, 400);
   const expiredBody = (await expired.json()) as { message: string };
-  assert.match(expiredBody.message, /过期/);
+  assert.match(expiredBody.message, /expired/i);
 
   const fresh = await app.fetch(call('/api/auth/passkey/register/options', {}, cookie, '203.0.113.41'), env);
   const freshBody = (await fresh.json()) as { challenge: string };
@@ -175,7 +176,7 @@ test('expired and replayed challenges fail', async () => {
   const replay = await app.fetch(call('/api/auth/passkey/register/verify', payload, cookie, '203.0.113.43'), env);
   assert.equal(replay.status, 400);
   const replayBody = (await replay.json()) as { message: string };
-  assert.match(replayBody.message, /已使用/);
+  assert.match(replayBody.message, /already used/i);
 });
 
 test('device-bound sign count can reject a clone and still accepts a zero counter', async () => {
@@ -241,6 +242,33 @@ test('a parent cannot delete another parent passkey, and the last key may be del
   assert.equal(loggedOut.status, 401);
 });
 
+test('chinese ks_lang keeps passkey failures and the synced default name', async () => {
+  const { env, sqlite } = createDb();
+  const cookie = `${await parentCookie(sqlite)}; ks_lang=zh-CN`;
+  const options = await app.fetch(call('/api/auth/passkey/register/options', {}, cookie, '203.0.113.44'), env);
+  assert.equal(options.status, 200);
+  const body = (await options.json()) as { challenge: string };
+  sqlite.prepare(`UPDATE webauthn_challenges SET expires_at = '2000-01-01T00:00:00.000Z'`).run();
+  const key = await createSoftwarePasskey({ backupEligible: true, backedUp: true });
+  const expired = await app.fetch(
+    call(
+      '/api/auth/passkey/register/verify',
+      await registrationResponse(key, { challenge: body.challenge, origin: ORIGIN, rpID: RP_ID }),
+      cookie,
+      '203.0.113.45',
+    ),
+    env,
+  );
+  assert.equal(expired.status, 400);
+  const expiredBody = (await expired.json()) as { message: string };
+  assert.match(expiredBody.message, /过期/);
+
+  const saved = await registerKey(env, cookie, key, 0);
+  assert.equal(saved.passkeyCount, 1);
+  const row = sqlite.prepare('SELECT friendly_name FROM parent_passkeys').get() as { friendly_name: string };
+  assert.equal(row.friendly_name, '已同步的 Passkey');
+});
+
 test('authenticate and register routes are rate limited', async () => {
   const { env, sqlite } = createDb();
   const ip = '203.0.113.80';
@@ -250,6 +278,9 @@ test('authenticate and register routes are rate limited', async () => {
   }
   const limited = await app.fetch(call('/api/auth/passkey/authenticate/options', {}, undefined, ip), env);
   assert.equal(limited.status, 429);
+  const limitedBody = (await limited.json()) as { error: string; message: string };
+  assert.equal(limitedBody.error, 'rate_limited');
+  assert.match(limitedBody.message, /Too many attempts/);
 
   const cookie = await parentCookie(sqlite, 'par_demo_2');
   for (let i = 0; i < 10; i += 1) {

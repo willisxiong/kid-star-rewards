@@ -4,9 +4,33 @@ export type Delivery =
   | { channel: 'resend' | 'mailchannels' }
   | { channel: 'log'; devLink?: string };
 
+export function magicLinkMessage(url: string): { subject: string; text: string; html: string } {
+  const safe = escapeHtml(url);
+  const subject = 'Kid Star Rewards · parent login link / 儿童星级奖励系统 · 家长登录链接';
+  const text = [
+    'Kid Star Rewards',
+    'Use this link to sign in to the parent app. It works once and expires in 15 minutes:',
+    url,
+    '',
+    '儿童星级奖励系统',
+    '点击链接登录家长端（15 分钟内有效，仅可使用一次）：',
+    url,
+    '',
+  ].join('\n');
+  const html = [
+    '<p><strong>Kid Star Rewards</strong></p>',
+    '<p>Use this link to sign in to the parent app. It works once and expires in 15 minutes.</p>',
+    `<p><a href="${safe}">${safe}</a></p>`,
+    '<hr>',
+    '<p><strong>儿童星级奖励系统</strong></p>',
+    '<p>点击链接登录家长端（15 分钟内有效，仅可使用一次）：</p>',
+    `<p><a href="${safe}">${safe}</a></p>`,
+  ].join('');
+  return { subject, text, html };
+}
+
 export async function deliverMagicLink(env: Env, to: string, url: string): Promise<Delivery> {
-  const subject = '儿童星级奖励系统 · 家长登录链接';
-  const text = `点击链接登录家长端（15 分钟内有效，仅可使用一次）：\n${url}\n`;
+  const { subject, text, html } = magicLinkMessage(url);
 
   if (env.RESEND_API_KEY) {
     const from = env.EMAIL_FROM || 'Kid Star Rewards <onboarding@resend.dev>';
@@ -20,7 +44,7 @@ export async function deliverMagicLink(env: Env, to: string, url: string): Promi
         from,
         to: [to],
         subject,
-        html: `<p>点击链接登录家长端（15 分钟内有效，仅可使用一次）：</p><p><a href="${escapeHtml(url)}">${escapeHtml(url)}</a></p>`,
+        html,
         text,
       }),
     });

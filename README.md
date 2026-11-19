@@ -43,6 +43,8 @@ npm run dev
 
 Open `http://localhost:4321/kid` and `http://localhost:4321/parent`.
 
+The UI defaults to English. The language control (English / 中文) stores the choice in a first-party cookie named `ks_lang`, with value `en` or `zh-CN`. It is not HttpOnly, it is separate from `ks_parent_session`, `ks_child_session`, and `ks_session`, and it works while logged out. A missing or unknown value stays English. The browser `Accept-Language` header is not used. `html lang` is `en` or `zh-CN`. Login emails contain English first and Chinese below, in one message.
+
 Passkeys on this machine only work at `http://localhost:4321`. Do not open `127.0.0.1`: the WebAuthn RP ID for local development is `localhost`, and a different host will not match the key. `astro dev` is pinned to that host and port.
 
 `npm run db:setup:local` applies `migrations/` to the local D1 database. The second migration inserts the demo family and is safe to leave applied. Reset by deleting `.wrangler/state` and running setup again.
@@ -81,14 +83,14 @@ Binding a device is a document `POST` that answers `303` to `/kid` with `Set-Coo
 Parents sign in with a passkey after the first magic-link login. There is no public signup and no password. Children still use the family code only.
 
 1. First login is still `POST /api/auth/request` and `GET /auth/verify` for an email in `parents`. That issues the 14-day parent session and sends the parent to `/parent`.
-2. With zero passkeys, `/parent` shows a blocking enrollment screen. The primary button is 「登记 Passkey」. The screen warns that this trial is on `workers.dev`: after a move to a custom domain, existing keys stop working and the parent must use the email link to register again.
+2. With zero passkeys, `/parent` shows a blocking enrollment screen. The primary button is “Register a passkey” (「登记 Passkey」 in Chinese). The screen warns that this trial is on `workers.dev`: after a move to a custom domain, existing keys stop working and the parent must use the email link to register again.
 3. Parent data writes (`/api/parent/tasks`, rewards, redemptions, family timezone) return `403` with `error: "passkey_required"` until at least one key exists. Registration, logout, passkey management, and `GET /api/parent/state` stay available. Deleting the last key locks the dashboard again. The magic link remains the recovery path.
-4. Later visits: if the browser supports WebAuthn, `/parent` shows 「使用 Passkey 登录」 first and 「发送登录链接」 second. There is no public lookup of whether an email has a key. If WebAuthn is missing, the email link is the primary button.
+4. Later visits: if the browser supports WebAuthn, `/parent` shows “Sign in with a passkey” (「使用 Passkey 登录」) first and “Email me a login link” (「发送登录链接」) second. There is no public lookup of whether an email has a key. If WebAuthn is missing, the email link is the primary button.
 5. Keys may be cloud-synced (iCloud Keychain, Google Password Manager). `residentKey` is `required`, attestation is `none`, user verification is `preferred`, and `authenticatorAttachment` is not set. A backed-up credential is accepted. A sign count is treated as a possible clone only when the key is not backup-eligible and both the stored and new counters are greater than zero and the new counter did not increase.
 
 Challenges live in D1 (`webauthn_challenges`), expire after 5 minutes, and are single-use. `webauthn_attempts` enforces 20 authenticate calls per IP per 15 minutes and 10 register calls per parent per 15 minutes. The magic-link limit (5 unconsumed links per parent per hour) is unchanged.
 
-`/parent` includes 「密钥与登录」 to list, rename, add, and delete keys.
+`/parent` includes “Keys and sign-in” (「密钥与登录」) to list, rename, add, and delete keys.
 
 Migration `migrations/0003_passkeys.sql` creates `parent_passkeys`, `webauthn_challenges`, and `webauthn_attempts`. Do not apply it to the production or preview D1 database until Willis says so. Do not deploy this change until that migration has been applied.
 
@@ -148,4 +150,4 @@ Then add tasks and rewards from `/parent`, or with SQL.
 - Redeem subtracts stars immediately and creates a pending redemption. Approve keeps them spent. Reject adds them back.
 - Check-ins use the family timezone, default `Asia/Hong_Kong`.
 - Kid and parent poll `GET /api/kid/state` and `GET /api/parent/state`.
-- The empty reward form says `请输入有效的奖励名称与所需星数`. The task form keeps the task wording.
+- The empty reward form says `Enter a valid reward name and a star cost.` in English and `请输入有效的奖励名称与所需星数` in Chinese. The task form keeps the task wording in that language.

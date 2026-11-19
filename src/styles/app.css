@@ -268,11 +268,52 @@ body { padding: 32px 16px 64px; }
 
 .form-row {
   display: grid;
-  grid-template-columns: 1fr 100px auto;
+  grid-template-columns: minmax(0, 1fr) 132px auto;
   gap: 10px;
   align-items: center;
 }
-@media (max-width: 480px) {
+.form-row.task-kind-row {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  align-items: end;
+  margin-bottom: 10px;
+}
+.task-form-note { margin-bottom: 12px; }
+.labeled-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--on-surface-variant);
+}
+.kind-chip {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  padding: 2px 8px;
+  border-radius: var(--r-full);
+}
+.kind-chip.daily { background: var(--accent-container); color: #0b57d0; }
+.kind-chip.burst { background: #fff3d6; color: #9a6700; }
+.item-card.task-daily { box-shadow: inset 3px 0 0 var(--accent-fixed); }
+.item-card.task-burst { box-shadow: inset 3px 0 0 var(--star); }
+.catalog-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--on-surface-variant);
+  margin-top: 2px;
+}
+.count-fraction {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--on-surface);
+}
+@media (max-width: 640px) {
   .form-row { grid-template-columns: 1fr; }
 }
 

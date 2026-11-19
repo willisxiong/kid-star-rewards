@@ -1,6 +1,6 @@
 import { currentLocale, text } from '../lib/i18n';
-import type { ParentState, PasskeyItem } from '../lib/types';
-import { parseName, parsePoints } from '../lib/validate';
+import type { CatalogTask, ParentState, PasskeyItem, TaskKind } from '../lib/types';
+import { parseDailyLimit, parseName, parsePoints } from '../lib/validate';
 import { api, showToast } from './api';
 import { authenticateWithPasskey, browserSupportsPasskey, registerPasskey } from './passkey-client';
 
@@ -19,7 +19,7 @@ const TIMEZONES = [
   'UTC',
 ];
 
-type EditTarget = { kind: 'task' | 'reward'; id: string } | null;
+type EditTarget = { kind: 'task' | 'reward'; id: string; taskKind?: TaskKind } | null;
 
 export function bootParent(): void {
   const boot = document.getElementById('boot');
@@ -183,23 +183,30 @@ export function bootParent(): void {
 
   document.getElementById('add-task')?.addEventListener('click', () => void saveTask());
   document.getElementById('add-reward')?.addEventListener('click', () => void saveReward());
+  document.getElementById('task-kind')?.addEventListener('change', () => syncTaskKind());
 
   const saveTask = async () => {
     const nameInput = document.getElementById('task-name') as HTMLInputElement | null;
     const pointsInput = document.getElementById('task-points') as HTMLInputElement | null;
+    const kind = selectedTaskKind();
     const name = parseName(nameInput?.value);
     const points = parsePoints(pointsInput?.value);
+    const dailyLimit = parseDailyLimit((document.getElementById('task-daily-limit') as HTMLInputElement | null)?.value);
     if (!name || points == null) {
       showToast(ui().taskInvalid);
       return;
     }
+    if (kind === 'daily' && dailyLimit == null) {
+      showToast(ui().dailyLimitInvalid);
+      return;
+    }
     const path = editing?.kind === 'task' ? `/api/parent/tasks/${editing.id}` : '/api/parent/tasks';
     const method = editing?.kind === 'task' ? 'PATCH' : 'POST';
-    await mutate(path, method, { name, points }, () => {
-      if (nameInput) nameInput.value = '';
-      if (pointsInput) pointsInput.value = '';
-      clearEdit('task');
-    });
+    const body =
+      editing?.kind === 'task'
+        ? { name, points, ...(kind === 'daily' ? { dailyLimit } : {}) }
+        : { name, points, kind, ...(kind === 'daily' ? { dailyLimit } : {}) };
+    await mutate(path, method, body, () => resetTaskForm());
   };
 
   const saveReward = async () => {
@@ -244,6 +251,55 @@ export function bootParent(): void {
     if (editing?.kind === kind) editing = null;
     const button = document.getElementById(kind === 'task' ? 'add-task' : 'add-reward');
     if (button) button.textContent = kind === 'task' ? ui().addTask : ui().addReward;
+  };
+
+  const selectedTaskKind = (): TaskKind => {
+    const kind = (document.getElementById('task-kind') as HTMLSelectElement | null)?.value;
+    return kind === 'starburst' ? 'starburst' : 'daily';
+  };
+
+  const syncTaskKind = () => {
+    const kind = selectedTaskKind();
+    const limitField = document.getElementById('task-limit-field');
+    if (limitField) limitField.hidden = kind !== 'daily';
+    const nameInput = document.getElementById('task-name') as HTMLInputElement | null;
+    if (nameInput) nameInput.placeholder = kind === 'starburst' ? ui().burstNamePlaceholder : ui().taskNamePlaceholder;
+  };
+
+  const resetTaskForm = () => {
+    editing = null;
+    const nameInput = document.getElementById('task-name') as HTMLInputElement | null;
+    const pointsInput = document.getElementById('task-points') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('task-kind') as HTMLSelectElement | null;
+    const limitInput = document.getElementById('task-daily-limit') as HTMLInputElement | null;
+    if (nameInput) nameInput.value = '';
+    if (pointsInput) pointsInput.value = '';
+    if (kindSelect) {
+      kindSelect.disabled = false;
+      kindSelect.value = 'daily';
+    }
+    if (limitInput) limitInput.value = '1';
+    syncTaskKind();
+    clearEdit('task');
+  };
+
+  const beginTaskEdit = (task: CatalogTask) => {
+    editing = { kind: 'task', id: task.id, taskKind: task.kind };
+    const nameInput = document.getElementById('task-name') as HTMLInputElement | null;
+    const pointsInput = document.getElementById('task-points') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('task-kind') as HTMLSelectElement | null;
+    const limitInput = document.getElementById('task-daily-limit') as HTMLInputElement | null;
+    if (nameInput) nameInput.value = task.name;
+    if (pointsInput) pointsInput.value = String(task.points);
+    if (kindSelect) {
+      kindSelect.value = task.kind;
+      kindSelect.disabled = true;
+    }
+    if (limitInput) limitInput.value = String(task.dailyLimit);
+    syncTaskKind();
+    const button = document.getElementById('add-task');
+    if (button) button.textContent = ui().saveChanges;
+    nameInput?.focus();
   };
 
   const renderPending = (state: ParentState) => {
@@ -295,16 +351,15 @@ export function bootParent(): void {
     if (!tasks || !rewards) return;
     tasks.replaceChildren();
     rewards.replaceChildren();
-    for (const task of state.tasks) {
-      tasks.append(catalogRow(task.name, ui().plusStars(task.points), () => {
-        editing = { kind: 'task', id: task.id };
-        const nameInput = document.getElementById('task-name') as HTMLInputElement | null;
-        const pointsInput = document.getElementById('task-points') as HTMLInputElement | null;
-        if (nameInput) nameInput.value = task.name;
-        if (pointsInput) pointsInput.value = String(task.points);
-        const button = document.getElementById('add-task');
-        if (button) button.textContent = ui().saveChanges;
-      }, () => void mutate(`/api/parent/tasks/${task.id}`, 'DELETE', {})));
+    const daily = state.tasks.filter((task) => task.kind !== 'starburst');
+    const bursts = state.tasks.filter((task) => task.kind === 'starburst');
+    if (daily.length) {
+      tasks.append(catalogLabel(ui().taskKindDaily));
+      for (const task of daily) tasks.append(taskRow(task));
+    }
+    if (bursts.length) {
+      tasks.append(catalogLabel(ui().taskKindBurst));
+      for (const task of bursts) tasks.append(taskRow(task));
     }
     for (const reward of state.rewards) {
       rewards.append(catalogRow(reward.name, ui().starCount(reward.cost), () => {
@@ -317,6 +372,54 @@ export function bootParent(): void {
         if (button) button.textContent = ui().saveChanges;
       }, () => void mutate(`/api/parent/rewards/${reward.id}`, 'DELETE', {})));
     }
+  };
+
+  const taskRow = (task: CatalogTask) => {
+    const card = document.createElement('div');
+    card.className = `item-card ${task.kind === 'starburst' ? 'task-burst' : 'task-daily'}`;
+    const info = document.createElement('div');
+    info.className = 'item-info';
+    const chip = document.createElement('span');
+    chip.className = `kind-chip ${task.kind === 'starburst' ? 'burst' : 'daily'}`;
+    chip.textContent = task.kind === 'starburst' ? ui().taskKindBurst : ui().taskKindDaily;
+    const title = document.createElement('span');
+    title.className = 'item-name';
+    title.textContent = task.name;
+    const points = document.createElement('span');
+    points.className = 'item-points';
+    const detail =
+      task.kind === 'starburst'
+        ? `${ui().plusStars(task.points)} · ${task.awarded ? ui().awarded : ui().once}`
+        : `${ui().plusStars(task.points)} · ${ui().perDay(task.dailyLimit)}`;
+    points.textContent = detail;
+    info.append(chip, title, points);
+    const actions = document.createElement('div');
+    actions.className = 'auth-actions';
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'action-btn small';
+    edit.textContent = ui().edit;
+    edit.addEventListener('click', () => beginTaskEdit(task));
+    actions.append(edit);
+    if (task.kind === 'starburst' && !task.awarded) {
+      const award = document.createElement('button');
+      award.type = 'button';
+      award.className = 'action-btn success small';
+      award.textContent = ui().award;
+      award.addEventListener('click', () => {
+        if (!window.confirm(ui().awardConfirm(task.name, task.points))) return;
+        void mutate(`/api/parent/tasks/${task.id}/award`, 'POST', {});
+      });
+      actions.append(award);
+    }
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.className = 'action-btn danger small';
+    remove.textContent = ui().turnOff;
+    remove.addEventListener('click', () => void mutate(`/api/parent/tasks/${task.id}`, 'DELETE', {}));
+    actions.append(remove);
+    card.append(info, actions);
+    return card;
   };
 
   const renderLogs = (state: ParentState) => {
@@ -456,6 +559,13 @@ export function bootParent(): void {
   });
 
   void refresh();
+}
+
+function catalogLabel(text: string): HTMLDivElement {
+  const node = document.createElement('div');
+  node.className = 'catalog-label';
+  node.textContent = text;
+  return node;
 }
 
 function catalogRow(name: string, meta: string, onEdit: () => void, onDelete: () => void): HTMLDivElement {

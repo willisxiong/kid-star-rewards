@@ -90,6 +90,12 @@ async function loadKidBoot(): Promise<{ state: KidState | null; showGate: boolea
           </div>
           <div class="grid-cards" id="task-grid"></div>
         </div>
+        <div class="section" id="burst-section" hidden>
+          <div class="section-title">
+            <span class="material-symbols-outlined" style="color: #f59e0b;">auto_awesome</span> {copy.taskKindBurst}
+          </div>
+          <div class="grid-cards" id="burst-grid"></div>
+        </div>
         <div class="section">
           <div class="section-title">
             <span class="material-symbols-outlined" style="color: #f59e0b;">redeem</span> {copy.wishlist}

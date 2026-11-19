@@ -11,6 +11,7 @@ export function createDb(extra: Partial<Env> = {}): { env: Env; sqlite: Database
   sqlite.exec(readFileSync(new URL('../../migrations/0001_schema.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../../migrations/0002_seed_demo.sql', import.meta.url), 'utf8'));
   sqlite.exec(readFileSync(new URL('../../migrations/0003_passkeys.sql', import.meta.url), 'utf8'));
+  sqlite.exec(readFileSync(new URL('../../migrations/0004_daily_checkin_and_starburst.sql', import.meta.url), 'utf8'));
   const env = {
     DB: new SqliteD1(sqlite),
     SESSION_SECRET: SECRET,
@@ -54,7 +55,14 @@ export class SqliteD1 implements D1Database {
 
   async batch(statements: D1Prepared[]): Promise<D1Result[]> {
     const results: D1Result[] = [];
-    for (const statement of statements) results.push(await statement.run());
+    this.sqlite.exec('BEGIN');
+    try {
+      for (const statement of statements) results.push(await statement.run());
+      this.sqlite.exec('COMMIT');
+    } catch (error) {
+      this.sqlite.exec('ROLLBACK');
+      throw error;
+    }
     return results;
   }
 }
